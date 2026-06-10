@@ -53,6 +53,10 @@ Rails.application.configure do
   # Highlight code that enqueued background job in logs.
   config.active_job.verbose_enqueue_logs = true
 
+  # Use Solid Queue (Postgres-backed) for background jobs so the ingestion
+  # pipeline runs in a real out-of-process worker (`bin/jobs`), not an in-process thread.
+  config.active_job.queue_adapter = :solid_queue
+
   # Highlight code that triggered redirect in logs.
   config.action_dispatch.verbose_redirect_logs = true
 

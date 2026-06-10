@@ -1,2 +1,6 @@
 #!/usr/bin/env ruby
+# Start the web server with the Solid Queue worker embedded in Puma, so a single
+# `bin/dev` runs both the API and background ingestion (single-process dev).
+# For a dedicated worker process instead, run `bin/jobs` separately.
+ENV["SOLID_QUEUE_IN_PUMA"] ||= "1"
 exec "./bin/rails", "server", *ARGV
