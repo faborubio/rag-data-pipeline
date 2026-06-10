@@ -16,12 +16,15 @@ module Rag
 
     def call(tenant:, question:, document_ids:)
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      cache_hit = true
 
       payload = Rails.cache.fetch(cache_key(tenant, question, document_ids), expires_in: 1.hour) do
+        cache_hit = false
         retrieve_and_generate(tenant, question, document_ids)
       end
 
       latency_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
+      Current.rag.merge!(cache_hit: cache_hit, sources: payload[:sources].size, latency_ms: latency_ms)
       Result.new(answer: payload[:answer], sources: payload[:sources], latency_ms: latency_ms)
     end
 
@@ -29,14 +32,17 @@ module Rag
     # generates the answer token-by-token after fetching the context.
     # Returns { contexts: [...], sources: [...] }.
     def retrieve(tenant:, question:, document_ids:)
-      query_vector = @embedder.embed_one(question)
+      query_vector = measure(:embed_ms) { @embedder.embed_one(question) }
 
       # Strict tenant isolation + restriction to the allowed document_ids.
-      chunks = DocumentChunk
-               .for_tenant(tenant)
-               .where(document_id: document_ids)
-               .nearest_neighbors(:embedding, query_vector, distance: "cosine")
-               .limit(TOP_K)
+      chunks = measure(:search_ms) do
+        DocumentChunk
+          .for_tenant(tenant)
+          .where(document_id: document_ids)
+          .nearest_neighbors(:embedding, query_vector, distance: "cosine")
+          .limit(TOP_K)
+          .to_a
+      end
 
       contexts = chunks.map do |chunk|
         { content: chunk.content, page_number: chunk.page_number, document_id: chunk.document_id }
@@ -54,6 +60,15 @@ module Rag
       retrieval = retrieve(tenant: tenant, question: question, document_ids: document_ids)
       answer = @llm.answer(question: question, contexts: retrieval[:contexts])
       { answer: answer, sources: retrieval[:sources] }
+    end
+
+    # Times the block and records the elapsed milliseconds into the per-request
+    # RAG metrics bag (surfaced in the structured request log).
+    def measure(key)
+      t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      result = yield
+      Current.rag[key] = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0) * 1000).round(2)
+      result
     end
 
     def snippet(text, length: 160)

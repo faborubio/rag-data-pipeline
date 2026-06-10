@@ -21,6 +21,9 @@ gem "ruby-openai"
 
 # Per-tenant API rate limiting
 gem "rack-attack"
+
+# Observability: condense each request into a single structured (JSON) log line
+gem "lograge"
 # Use the Puma web server [https://github.com/puma/puma]
 gem "puma", ">= 5.0"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]

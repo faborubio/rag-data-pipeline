@@ -3,6 +3,7 @@ module Api
     # Base API controller enforcing strict per-tenant authentication.
     # The raw secret API key is matched via the blind index (constant time).
     class BaseController < ApplicationController
+      before_action :set_request_context
       before_action :authenticate_tenant!
 
       rescue_from ActiveRecord::RecordNotFound do
@@ -10,6 +11,10 @@ module Api
       end
 
       private
+
+      def set_request_context
+        Current.request_id = request.request_id
+      end
 
       def authenticate_tenant!
         tenant = Tenant.authenticate(api_key_from_request)

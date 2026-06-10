@@ -38,4 +38,16 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
     result = Rag::QueryService.new.call(tenant: @tenant, question: "algo", document_ids: [@document.id])
     assert_operator result.sources.size, :<=, Rag::QueryService::TOP_K
   end
+
+  test "records observability metrics for the query" do
+    Current.reset
+    Rag::QueryService.new.call(tenant: @tenant, question: "incendio", document_ids: [@document.id])
+
+    assert Current.rag.key?(:embed_ms),   "should record embedding latency"
+    assert Current.rag.key?(:search_ms),  "should record vector search latency"
+    assert Current.rag.key?(:latency_ms), "should record total latency"
+    assert_includes [ true, false ], Current.rag[:cache_hit]
+  ensure
+    Current.reset
+  end
 end

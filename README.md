@@ -210,6 +210,23 @@ db/
 └── structure.sql         # Esquema (SQL para preservar vector + HNSW)
 ```
 
+## ⚙️ Jobs en segundo plano y Observabilidad
+
+**Solid Queue (Write Path asíncrono):** la ingestión de PDFs corre en un worker fuera del proceso web.
+```bash
+bin/jobs          # worker dedicado (estilo producción)
+# o bien:
+bin/dev           # web + worker embebido en Puma (SOLID_QUEUE_IN_PUMA=1)
+```
+
+**Logs estructurados (lograge):** una línea JSON por petición, con `request_id`, `tenant_id` y métricas RAG de latencia:
+```json
+{ "method":"POST", "path":"/api/v1/chats/query", "status":200,
+  "request_id":"3273...", "tenant_id":"1461...",
+  "embed_ms":1.28, "search_ms":146.34, "cache_hit":false, "sources":1, "latency_ms":148 }
+```
+Esto permite medir p50/p95, el desglose embeddings vs. búsqueda vectorial y el hit-rate de caché (ahorro de tokens).
+
 ## 🚢 Despliegue
 
 El proyecto está preparado para empaquetarse en Docker y desplegarse con **Kamal** (ver [`config/deploy.yml`](config/deploy.yml)), usando la imagen `ankane/pgvector` como accesorio de base de datos para *zero-downtime deployments*.
@@ -222,11 +239,13 @@ El proyecto está preparado para empaquetarse en Docker y desplegarse con **Kama
 - [x] Pipeline de ingestión asíncrono
 - [x] Endpoint de consulta RAG (Read Path)
 - [x] Autenticación por tenant
-- [x] Suite de tests automatizados (Minitest, 48 tests)
+- [x] Suite de tests automatizados (Minitest, 49 tests)
 - [x] Rate limiting por tenant (rack-attack)
 - [x] Streaming de respuestas (SSE)
-- [ ] Worker de Solid Queue en producción + monitoreo
-- [ ] Observabilidad (logs estructurados / métricas de latencia)
+- [x] Worker de Solid Queue (proceso `bin/jobs` / embebido en Puma)
+- [x] Observabilidad (logs estructurados JSON + métricas de latencia RAG)
+- [ ] Métricas a Prometheus/OpenTelemetry
+- [ ] Rate limiting con backend distribuido (Solid Cache)
 
 ## 📄 Licencia
 
