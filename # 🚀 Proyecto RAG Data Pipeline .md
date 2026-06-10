@@ -6,6 +6,31 @@ El objetivo principal de este proyecto es demostrar habilidades avanzadas de **i
 
 ---
 
+## ✅ Estado de Implementación
+
+> Este documento es la **especificación original**. El proyecto se implementó **por completo y se extendió** más allá del alcance inicial. Para la guía de uso, arquitectura y endpoints actualizados, ver el **[README](README.md)**.
+
+### Requisitos de la spec — todos implementados
+- ✅ Esquema con **UUID** + **pgvector/HNSW** (`vector_cosine_ops`) — `db/migrate/`, `db/structure.sql`
+- ✅ Modelos `Tenant` / `Document` (enum `status`) / `DocumentChunk` (`has_neighbors`) — `app/models/`
+- ✅ **Cifrado** de API keys en reposo (Lockbox + Blind Index) — `app/models/tenant.rb`
+- ✅ **Pipeline de ingestión asíncrono**: `pdftotext` → chunking (langchainrb) → embeddings en lotes de 20 — `app/services/rag/`, `app/jobs/document_ingestion_job.rb`
+- ✅ **Resiliencia**: reintentos con backoff exponencial + **Circuit Breaker** — `app/services/rag/circuit_breaker.rb`
+- ✅ Endpoint **`POST /api/v1/chats/query`** (coseno top-5, filtro por `tenant_id` + `document_ids`, payload exacto) — `app/controllers/api/v1/chats_controller.rb`, `app/services/rag/query_service.rb`
+- ✅ **Autenticación por tenant** vía API key (blind index)
+- ✅ Stack: Rails 8 API · Puma · Solid Queue · Solid Cache · PostgreSQL 16 + pgvector · Kamal
+
+### Construido más allá de la spec (extras)
+- ➕ **Suite de tests** (Minitest, 53 tests) y **CI verde** en GitHub Actions
+- ➕ **Streaming SSE** real (`stream: true`) — respuesta token por token
+- ➕ **Rate limiting por tenant** (rack-attack, 429 + Retry-After)
+- ➕ **Caché distribuida** (Solid Cache sobre PostgreSQL) para la caché semántica y los contadores
+- ➕ **Observabilidad**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics`
+- ➕ **Demo web** sin build (`public/demo.html`): subir PDF + chat con streaming
+- ➕ Worker de Solid Queue dedicado (`bin/jobs`) o embebido en Puma (`bin/dev`)
+
+---
+
 ## 🏗️ Software Architecture Document (SAD)
 
 ### 1. Vista de Procesos (Flujo de Datos)
@@ -64,6 +89,7 @@ WHERE document_id IN (SELECT id FROM documents WHERE tenant_id = :current_tenant
   AND document_id IN (:allowed_document_ids)
 ORDER BY embedding <=> :query_vector 
 LIMIT 5;
+```
 
 Estructura Payload HTTP:
 Cuerpo de la Solicitud (JSON):
