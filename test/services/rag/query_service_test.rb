@@ -16,7 +16,7 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
   end
 
   test "returns answer, sources and latency" do
-    result = Rag::QueryService.new.call(tenant: @tenant, question: "¿incendio?", document_ids: [@document.id])
+    result = Rag::QueryService.new.call(tenant: @tenant, question: "¿incendio?", document_ids: [ @document.id ])
 
     assert result.answer.present?
     assert_operator result.sources.size, :>=, 1
@@ -29,19 +29,19 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
 
   test "enforces strict tenant isolation" do
     other = Tenant.create!(name: "Otra")
-    result = Rag::QueryService.new.call(tenant: other, question: "¿incendio?", document_ids: [@document.id])
+    result = Rag::QueryService.new.call(tenant: other, question: "¿incendio?", document_ids: [ @document.id ])
     assert_empty result.sources
   end
 
   test "never returns more than TOP_K results" do
     10.times { |i| @document.document_chunks.create!(content: "c#{i}", page_number: i, embedding: sample_vector(i)) }
-    result = Rag::QueryService.new.call(tenant: @tenant, question: "algo", document_ids: [@document.id])
+    result = Rag::QueryService.new.call(tenant: @tenant, question: "algo", document_ids: [ @document.id ])
     assert_operator result.sources.size, :<=, Rag::QueryService::TOP_K
   end
 
   test "records observability metrics for the query" do
     Current.reset
-    Rag::QueryService.new.call(tenant: @tenant, question: "incendio", document_ids: [@document.id])
+    Rag::QueryService.new.call(tenant: @tenant, question: "incendio", document_ids: [ @document.id ])
 
     assert Current.rag.key?(:embed_ms),   "should record embedding latency"
     assert Current.rag.key?(:search_ms),  "should record vector search latency"
@@ -56,11 +56,11 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
     Rails.cache = ActiveSupport::Cache::MemoryStore.new
 
     Current.reset
-    Rag::QueryService.new.call(tenant: @tenant, question: "incendio", document_ids: [@document.id])
+    Rag::QueryService.new.call(tenant: @tenant, question: "incendio", document_ids: [ @document.id ])
     assert_equal false, Current.rag[:cache_hit], "first call is a miss"
 
     Current.reset
-    Rag::QueryService.new.call(tenant: @tenant, question: "incendio", document_ids: [@document.id])
+    Rag::QueryService.new.call(tenant: @tenant, question: "incendio", document_ids: [ @document.id ])
     assert_equal true, Current.rag[:cache_hit], "second identical call is a hit"
   ensure
     Rails.cache = original_cache

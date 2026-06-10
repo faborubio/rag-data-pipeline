@@ -13,7 +13,7 @@ class Api::V1::ChatsStreamingTest < ActionDispatch::IntegrationTest
 
   test "streams the answer as Server-Sent Events when stream=true" do
     post api_v1_chats_query_url,
-         params: { question: "¿Qué hago en caso de incendio?", document_ids: [@document.id], stream: true },
+         params: { question: "¿Qué hago en caso de incendio?", document_ids: [ @document.id ], stream: true },
          headers: auth_headers(@tenant), as: :json
 
     assert_response :success
@@ -25,7 +25,7 @@ class Api::V1::ChatsStreamingTest < ActionDispatch::IntegrationTest
 
   test "still returns plain JSON when stream is absent" do
     post api_v1_chats_query_url,
-         params: { question: "incendio", document_ids: [@document.id] },
+         params: { question: "incendio", document_ids: [ @document.id ] },
          headers: auth_headers(@tenant), as: :json
 
     assert_response :success

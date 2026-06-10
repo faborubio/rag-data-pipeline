@@ -86,7 +86,7 @@ module Rag
     end
 
     def cache_key(tenant, question, document_ids)
-      digest = Digest::SHA256.hexdigest([question, Array(document_ids).map(&:to_s).sort].to_json)
+      digest = Digest::SHA256.hexdigest([ question, Array(document_ids).map(&:to_s).sort ].to_json)
       "rag:query:#{tenant.id}:#{digest}"
     end
   end

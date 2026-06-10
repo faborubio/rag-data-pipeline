@@ -16,9 +16,9 @@ class Rack::Attack
     authorization = req.get_header("HTTP_AUTHORIZATION").to_s
     key = if authorization.start_with?("Bearer ")
             authorization.split(" ", 2).last
-          else
+    else
             req.get_header("HTTP_X_API_KEY")
-          end
+    end
 
     Digest::SHA256.hexdigest(key) if key.present?
   end
@@ -31,6 +31,6 @@ class Rack::Attack
       "Content-Type" => "application/json",
       "Retry-After" => retry_after
     }
-    [429, headers, [{ error: "rate limit exceeded, retry later" }.to_json]]
+    [ 429, headers, [ { error: "rate limit exceeded, retry later" }.to_json ] ]
   end
 end

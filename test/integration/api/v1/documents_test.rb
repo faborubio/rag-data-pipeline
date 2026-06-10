@@ -5,7 +5,7 @@ class Api::V1::DocumentsTest < ActionDispatch::IntegrationTest
 
   setup do
     @tenant = Tenant.create!(name: "Acme")
-    @pdf_path = build_pdf(Rails.root.join("tmp", "req_doc.pdf"), ["Contenido de prueba para subir."])
+    @pdf_path = build_pdf(Rails.root.join("tmp", "req_doc.pdf"), [ "Contenido de prueba para subir." ])
   end
 
   teardown { File.delete(@pdf_path) if @pdf_path && File.exist?(@pdf_path) }

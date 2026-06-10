@@ -12,13 +12,13 @@ class Api::V1::ChatsTest < ActionDispatch::IntegrationTest
   end
 
   test "requires authentication" do
-    post api_v1_chats_query_url, params: { question: "x", document_ids: [@document.id] }, as: :json
+    post api_v1_chats_query_url, params: { question: "x", document_ids: [ @document.id ] }, as: :json
     assert_response :unauthorized
   end
 
   test "returns answer, sources and latency for an authenticated query" do
     post api_v1_chats_query_url,
-         params: { question: "¿Qué hago en caso de incendio?", document_ids: [@document.id] },
+         params: { question: "¿Qué hago en caso de incendio?", document_ids: [ @document.id ] },
          headers: auth_headers(@tenant), as: :json
 
     assert_response :success
@@ -38,7 +38,7 @@ class Api::V1::ChatsTest < ActionDispatch::IntegrationTest
   test "does not leak chunks from another tenant" do
     other = Tenant.create!(name: "Otra")
     post api_v1_chats_query_url,
-         params: { question: "incendio", document_ids: [@document.id] },
+         params: { question: "incendio", document_ids: [ @document.id ] },
          headers: auth_headers(other), as: :json
 
     assert_response :success

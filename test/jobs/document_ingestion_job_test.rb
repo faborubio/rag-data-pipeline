@@ -7,7 +7,7 @@ class DocumentIngestionJobTest < ActiveJob::TestCase
   end
 
   test "marks the document completed and creates chunks" do
-    path = build_pdf(Rails.root.join("tmp", "job_test.pdf"), ["Texto de prueba para la ingestion."])
+    path = build_pdf(Rails.root.join("tmp", "job_test.pdf"), [ "Texto de prueba para la ingestion." ])
 
     DocumentIngestionJob.perform_now(@document.id, path.to_s)
 

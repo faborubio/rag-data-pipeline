@@ -35,7 +35,7 @@ module Rag
     end
 
     def fallback_chunks(text)
-      step = [@chunk_size - @chunk_overlap, 1].max
+      step = [ @chunk_size - @chunk_overlap, 1 ].max
       chunks = []
       i = 0
       while i < text.length

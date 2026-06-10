@@ -18,7 +18,7 @@ class TenantTest < ActiveSupport::TestCase
     tenant = Tenant.create!(name: "Acme")
     raw = tenant.api_key
     row = Tenant.connection.select_one(
-      Tenant.sanitize_sql_array(["SELECT api_key_ciphertext, api_key_bidx FROM tenants WHERE id = ?", tenant.id])
+      Tenant.sanitize_sql_array([ "SELECT api_key_ciphertext, api_key_bidx FROM tenants WHERE id = ?", tenant.id ])
     )
     assert row["api_key_ciphertext"].present?, "ciphertext column should be populated"
     assert row["api_key_bidx"].present?, "blind index column should be populated"

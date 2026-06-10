@@ -16,14 +16,14 @@ class Rag::IngestorTest < ActiveSupport::TestCase
 
     assert_operator count, :>=, 2
     assert_equal count, @document.document_chunks.count
-    assert_equal [1, 2], @document.document_chunks.distinct.pluck(:page_number).sort
+    assert_equal [ 1, 2 ], @document.document_chunks.distinct.pluck(:page_number).sort
     assert_equal 1536, @document.document_chunks.first.embedding.size
   ensure
     File.delete(path) if path && File.exist?(path)
   end
 
   test "re-ingesting replaces previous chunks" do
-    path = build_pdf(Rails.root.join("tmp", "ingestor_reingest.pdf"), ["Una sola pagina."])
+    path = build_pdf(Rails.root.join("tmp", "ingestor_reingest.pdf"), [ "Una sola pagina." ])
     Rag::Ingestor.new.call(@document, path)
     first_count = @document.document_chunks.count
 

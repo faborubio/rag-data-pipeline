@@ -19,7 +19,7 @@ module Rag
     end
 
     def embed_one(text)
-      embed([text]).first
+      embed([ text ]).first
     end
 
     def live?
