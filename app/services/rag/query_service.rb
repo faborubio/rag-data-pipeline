@@ -25,9 +25,10 @@ module Rag
       Result.new(answer: payload[:answer], sources: payload[:sources], latency_ms: latency_ms)
     end
 
-    private
-
-    def retrieve_and_generate(tenant, question, document_ids)
+    # Retrieval only (no generation): used by the streaming Read Path, which
+    # generates the answer token-by-token after fetching the context.
+    # Returns { contexts: [...], sources: [...] }.
+    def retrieve(tenant:, question:, document_ids:)
       query_vector = @embedder.embed_one(question)
 
       # Strict tenant isolation + restriction to the allowed document_ids.
@@ -40,13 +41,19 @@ module Rag
       contexts = chunks.map do |chunk|
         { content: chunk.content, page_number: chunk.page_number, document_id: chunk.document_id }
       end
-
-      answer = @llm.answer(question: question, contexts: contexts)
       sources = contexts.map do |c|
         { document_id: c[:document_id], page: c[:page_number], text_snippet: snippet(c[:content]) }
       end
 
-      { answer: answer, sources: sources }
+      { contexts: contexts, sources: sources }
+    end
+
+    private
+
+    def retrieve_and_generate(tenant, question, document_ids)
+      retrieval = retrieve(tenant: tenant, question: question, document_ids: document_ids)
+      answer = @llm.answer(question: question, contexts: retrieval[:contexts])
+      { answer: answer, sources: retrieval[:sources] }
     end
 
     def snippet(text, length: 160)

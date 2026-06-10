@@ -34,3 +34,6 @@
 # Local provisioning/setup scripts and ad-hoc test helpers (machine-specific paths).
 /.provision/
 
+
+# Local agent settings
+/.claude/

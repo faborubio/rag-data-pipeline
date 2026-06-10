@@ -132,6 +132,20 @@ curl -X POST http://localhost:3000/api/v1/chats/query \
 }
 ```
 
+**Streaming (SSE):** con `"stream": true` la respuesta se transmite token por token como *Server-Sent Events* (`Content-Type: text/event-stream`):
+```
+event: token
+data: {"delta":"Según "}
+
+event: token
+data: {"delta":"el "}
+
+event: done
+data: {"sources":[...],"done":true}
+```
+
+**Rate limiting:** cada API key tiene un presupuesto de peticiones por minuto (configurable con `RATE_LIMIT_PER_MINUTE`, por defecto 60). Al excederlo se responde `429 Too Many Requests` con cabecera `Retry-After`.
+
 ## ✅ Requisitos
 
 - **Ruby** 3.3.0+
@@ -208,9 +222,11 @@ El proyecto está preparado para empaquetarse en Docker y desplegarse con **Kama
 - [x] Pipeline de ingestión asíncrono
 - [x] Endpoint de consulta RAG (Read Path)
 - [x] Autenticación por tenant
-- [ ] Suite de tests automatizados (Minitest/RSpec)
-- [ ] Rate limiting por tenant
-- [ ] Streaming de respuestas (SSE)
+- [x] Suite de tests automatizados (Minitest, 48 tests)
+- [x] Rate limiting por tenant (rack-attack)
+- [x] Streaming de respuestas (SSE)
+- [ ] Worker de Solid Queue en producción + monitoreo
+- [ ] Observabilidad (logs estructurados / métricas de latencia)
 
 ## 📄 Licencia
 

@@ -24,7 +24,45 @@ module Rag
       end
     end
 
+    # Streams the answer in deltas, yielding each text fragment to the block.
+    # Returns the full answer string. Used by the SSE Read Path.
+    def answer_stream(question:, contexts:, &block)
+      if @api_key.present?
+        @breaker.run { openai_answer_stream(question, contexts, &block) }
+      else
+        fallback_answer_stream(question, contexts, &block)
+      end
+    end
+
     private
+
+    def openai_answer_stream(question, contexts, &block)
+      client = OpenAI::Client.new(access_token: @api_key)
+      full = +""
+      client.chat(parameters: {
+        model: Rag::CHAT_MODEL,
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: user_prompt(question, contexts) }
+        ],
+        stream: proc do |chunk, _bytesize|
+          delta = chunk.dig("choices", 0, "delta", "content")
+          next if delta.nil?
+
+          full << delta
+          block.call(delta)
+        end
+      })
+      full
+    end
+
+    def fallback_answer_stream(question, contexts, &block)
+      text = fallback_answer(question, contexts)
+      # Emit word-by-word to simulate token streaming.
+      text.scan(/\S+\s*/).each { |fragment| block.call(fragment) }
+      text
+    end
 
     def openai_answer(question, contexts)
       client = OpenAI::Client.new(access_token: @api_key)

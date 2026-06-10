@@ -18,6 +18,9 @@ gem "blind_index"
 # RAG orchestration: semantic chunking + embeddings + LLM (OpenAI via langchainrb)
 gem "langchainrb"
 gem "ruby-openai"
+
+# Per-tenant API rate limiting
+gem "rack-attack"
 # Use the Puma web server [https://github.com/puma/puma]
 gem "puma", ">= 5.0"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]

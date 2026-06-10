@@ -10,7 +10,7 @@ Rails.application.routes.draw do
       # Write Path: upload a PDF (async ingestion) and inspect its status.
       resources :documents, only: %i[create show]
       # Read Path: synchronous RAG query.
-      post "chats/query", to: "chats#query"
+      post "chats/query", to: "chats#query", as: :chats_query
     end
   end
 
