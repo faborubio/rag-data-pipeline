@@ -50,4 +50,20 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
   ensure
     Current.reset
   end
+
+  test "serves an identical query from the cache on the second call" do
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+
+    Current.reset
+    Rag::QueryService.new.call(tenant: @tenant, question: "incendio", document_ids: [@document.id])
+    assert_equal false, Current.rag[:cache_hit], "first call is a miss"
+
+    Current.reset
+    Rag::QueryService.new.call(tenant: @tenant, question: "incendio", document_ids: [@document.id])
+    assert_equal true, Current.rag[:cache_hit], "second identical call is a hit"
+  ensure
+    Rails.cache = original_cache
+    Current.reset
+  end
 end

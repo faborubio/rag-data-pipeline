@@ -24,6 +24,8 @@ gem "rack-attack"
 
 # Observability: condense each request into a single structured (JSON) log line
 gem "lograge"
+# Prometheus metrics exposed at /metrics
+gem "prometheus-client"
 # Use the Puma web server [https://github.com/puma/puma]
 gem "puma", ">= 5.0"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]

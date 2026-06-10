@@ -227,6 +227,17 @@ bin/dev           # web + worker embebido en Puma (SOLID_QUEUE_IN_PUMA=1)
 ```
 Esto permite medir p50/p95, el desglose embeddings vs. búsqueda vectorial y el hit-rate de caché (ahorro de tokens).
 
+**Métricas Prometheus (`GET /metrics`):** contadores e histogramas de la app (sin Grafana obligatorio). Protégelo a nivel de red o con `METRICS_TOKEN`.
+```
+rag_queries_total 2.0
+rag_cache_lookups_total{result="hit"} 1.0
+rag_cache_lookups_total{result="miss"} 1.0
+rag_query_latency_seconds_sum 0.146
+rag_ingestions_total{status="completed"} 1.0
+```
+
+**Caché distribuida (Solid Cache sobre PostgreSQL):** la caché semántica de consultas y los contadores de rate limiting viven en Postgres, así que son **consistentes entre procesos/instancias**. En la práctica, una consulta repetida baja de ~144ms a ~2ms (cache hit).
+
 ## 🚢 Despliegue
 
 El proyecto está preparado para empaquetarse en Docker y desplegarse con **Kamal** (ver [`config/deploy.yml`](config/deploy.yml)), usando la imagen `ankane/pgvector` como accesorio de base de datos para *zero-downtime deployments*.
@@ -243,9 +254,9 @@ El proyecto está preparado para empaquetarse en Docker y desplegarse con **Kama
 - [x] Rate limiting por tenant (rack-attack)
 - [x] Streaming de respuestas (SSE)
 - [x] Worker de Solid Queue (proceso `bin/jobs` / embebido en Puma)
-- [x] Observabilidad (logs estructurados JSON + métricas de latencia RAG)
-- [ ] Métricas a Prometheus/OpenTelemetry
-- [ ] Rate limiting con backend distribuido (Solid Cache)
+- [x] Observabilidad (logs JSON + métricas RAG + endpoint Prometheus `/metrics`)
+- [x] Caché y rate limiting distribuidos (Solid Cache sobre PostgreSQL)
+- [ ] Tracing distribuido (OpenTelemetry)
 
 ## 📄 Licencia
 

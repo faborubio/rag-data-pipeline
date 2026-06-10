@@ -25,6 +25,7 @@ module Rag
 
       latency_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
       Current.rag.merge!(cache_hit: cache_hit, sources: payload[:sources].size, latency_ms: latency_ms)
+      record_metrics(latency_ms, cache_hit)
       Result.new(answer: payload[:answer], sources: payload[:sources], latency_ms: latency_ms)
     end
 
@@ -60,6 +61,14 @@ module Rag
       retrieval = retrieve(tenant: tenant, question: question, document_ids: document_ids)
       answer = @llm.answer(question: question, contexts: retrieval[:contexts])
       { answer: answer, sources: retrieval[:sources] }
+    end
+
+    def record_metrics(latency_ms, cache_hit)
+      AppMetrics::QUERIES.increment
+      AppMetrics::QUERY_LATENCY.observe(latency_ms / 1000.0)
+      AppMetrics::CACHE_LOOKUPS.increment(labels: { result: cache_hit ? "hit" : "miss" })
+      AppMetrics::EMBED_LATENCY.observe(Current.rag[:embed_ms] / 1000.0) if Current.rag[:embed_ms]
+      AppMetrics::SEARCH_LATENCY.observe(Current.rag[:search_ms] / 1000.0) if Current.rag[:search_ms]
     end
 
     # Times the block and records the elapsed milliseconds into the per-request

@@ -13,12 +13,14 @@ class DocumentIngestionJob < ApplicationJob
 
     document.completed!
     cleanup(file_path)
+    AppMetrics::INGESTIONS.increment(labels: { status: "completed" })
     Rails.logger.info("[Ingestion] document=#{document_id} chunks=#{chunk_count} -> completed")
   rescue ActiveRecord::RecordNotFound => e
     # Document was deleted; nothing to retry.
     Rails.logger.warn("[Ingestion] #{e.message}; skipping")
   rescue StandardError => e
     Document.where(id: document_id).update_all(status: Document.statuses[:failed])
+    AppMetrics::INGESTIONS.increment(labels: { status: "failed" })
     Rails.logger.error("[Ingestion] document=#{document_id} failed: #{e.class}: #{e.message}")
     raise e
   end
