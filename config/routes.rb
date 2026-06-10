@@ -11,7 +11,7 @@ Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
       # Write Path: upload a PDF (async ingestion) and inspect its status.
-      resources :documents, only: %i[create show]
+      resources :documents, only: %i[index create show]
       # Read Path: synchronous RAG query.
       post "chats/query", to: "chats#query", as: :chats_query
     end

@@ -45,6 +45,19 @@ class Api::V1::DocumentsTest < ActionDispatch::IntegrationTest
     assert_equal "completed", JSON.parse(response.body)["status"]
   end
 
+  test "lists only the tenant's documents with chunk counts" do
+    doc = @tenant.documents.create!(filename: "mine.pdf", status: :completed)
+    doc.document_chunks.create!(content: "x", page_number: 1, embedding: sample_vector)
+    Tenant.create!(name: "Otra").documents.create!(filename: "theirs.pdf")
+
+    get api_v1_documents_url, headers: auth_headers(@tenant)
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal %w[mine.pdf], body.map { |d| d["filename"] }
+    assert_equal 1, body.first["chunks"]
+  end
+
   private
 
   def pdf_upload

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG Data Pipeline — Demo</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#1e293b; --muted:#94a3b8; --accent:#6366f1; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; --text:#e2e8f0; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:18px 24px; border-bottom:1px solid #334155; display:flex; align-items:center; gap:12px; }
+    header h1 { font-size:18px; margin:0; }
+    header .tag { font-size:12px; color:var(--muted); }
+    .wrap { display:grid; grid-template-columns: 360px 1fr; gap:18px; padding:18px; max-width:1200px; margin:0 auto; }
+    .panel { background:var(--panel); border:1px solid #334155; border-radius:12px; padding:16px; }
+    .panel h2 { font-size:14px; margin:0 0 12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+    input, textarea, button { font:inherit; }
+    input[type=text], input[type=password], textarea { width:100%; background:#0b1220; border:1px solid #334155; color:var(--text); border-radius:8px; padding:10px; }
+    textarea { resize:vertical; min-height:64px; }
+    button { background:var(--accent); color:white; border:none; border-radius:8px; padding:10px 14px; cursor:pointer; font-weight:600; }
+    button:hover { filter:brightness(1.1); } button:disabled { opacity:.5; cursor:not-allowed; }
+    .row { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+    .muted { color:var(--muted); font-size:12px; }
+    .doc { display:flex; align-items:center; gap:8px; padding:8px; border:1px solid #334155; border-radius:8px; margin-bottom:8px; font-size:14px; }
+    .badge { font-size:11px; padding:2px 8px; border-radius:999px; }
+    .badge.completed { background:rgba(34,197,94,.15); color:var(--ok); }
+    .badge.processing { background:rgba(245,158,11,.15); color:var(--warn); }
+    .badge.failed { background:rgba(239,68,68,.15); color:var(--err); }
+    #chat { display:flex; flex-direction:column; height:calc(100vh - 260px); min-height:360px; }
+    #messages { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:12px; padding:4px; }
+    .msg { max-width:85%; padding:10px 14px; border-radius:12px; white-space:pre-wrap; line-height:1.45; }
+    .msg.user { align-self:flex-end; background:var(--accent); }
+    .msg.bot { align-self:flex-start; background:#0b1220; border:1px solid #334155; }
+    .sources { margin-top:8px; font-size:12px; color:var(--muted); }
+    .sources b { color:var(--text); }
+    .note { font-size:12px; background:#0b1220; border:1px dashed #334155; border-radius:8px; padding:10px; color:var(--muted); }
+    code { background:#0b1220; padding:1px 6px; border-radius:4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🚀 RAG Data Pipeline</h1>
+    <span class="tag">demo · subir PDF · chatear con streaming</span>
+  </header>
+
+  <div class="wrap">
+    <!-- LEFT: auth + upload + documents -->
+    <div>
+      <div class="panel">
+        <h2>API key</h2>
+        <div class="row">
+          <input id="apiKey" type="password" placeholder="rag_sk_..." />
+          <button onclick="saveKey()">Guardar</button>
+        </div>
+        <div class="note">¿No tienes API key? En el servidor:<br />
+          <code>bin/rails runner 'puts Tenant.create!(name: "Demo").api_key'</code>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h2>Subir documento (.pdf)</h2>
+        <div class="row">
+          <input id="file" type="file" accept="application/pdf" />
+        </div>
+        <button id="uploadBtn" onclick="upload()">Subir e ingestar</button>
+        <div id="uploadStatus" class="muted" style="margin-top:8px"></div>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h2>Documentos <button style="float:right;padding:4px 10px;font-size:12px" onclick="loadDocs()">↻</button></h2>
+        <div id="docs"><div class="muted">Guarda tu API key y pulsa ↻</div></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: chat -->
+    <div class="panel" id="chat">
+      <h2>Chat sobre tus documentos</h2>
+      <div id="messages"></div>
+      <div class="muted" id="selInfo" style="margin:8px 0"></div>
+      <div class="row" style="margin-top:8px">
+        <textarea id="question" placeholder="¿Qué hago en caso de incendio?"></textarea>
+      </div>
+      <button id="askBtn" onclick="ask()">Preguntar (streaming)</button>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const selected = new Set();
+
+    function saveKey() {
+      localStorage.setItem("rag_api_key", $("apiKey").value.trim());
+      loadDocs();
+    }
+    function key() { return ($("apiKey").value || localStorage.getItem("rag_api_key") || "").trim(); }
+    function authHeaders(extra = {}) { return Object.assign({ "Authorization": "Bearer " + key() }, extra); }
+
+    window.onload = () => {
+      const k = localStorage.getItem("rag_api_key");
+      if (k) { $("apiKey").value = k; loadDocs(); }
+    };
+
+    async function upload() {
+      const f = $("file").files[0];
+      if (!f) return setUpload("Elige un archivo .pdf", "err");
+      if (!key()) return setUpload("Falta la API key", "err");
+      setUpload("Subiendo...", "muted");
+      const fd = new FormData(); fd.append("file", f);
+      try {
+        const r = await fetch("/api/v1/documents", { method: "POST", headers: authHeaders(), body: fd });
+        const j = await r.json();
+        if (!r.ok) return setUpload("Error: " + (j.error || r.status), "err");
+        setUpload(`✓ Encolado (${j.status}). Procesando en segundo plano...`, "ok");
+        setTimeout(loadDocs, 1500); setTimeout(loadDocs, 4000);
+      } catch (e) { setUpload("Error de red: " + e.message, "err"); }
+    }
+    function setUpload(msg, cls) { $("uploadStatus").textContent = msg; $("uploadStatus").style.color = colorFor(cls); }
+    function colorFor(c){ return ({ok:'#22c55e',err:'#ef4444',warn:'#f59e0b'})[c] || '#94a3b8'; }
+
+    async function loadDocs() {
+      if (!key()) return;
+      try {
+        const r = await fetch("/api/v1/documents", { headers: authHeaders() });
+        if (!r.ok) { $("docs").innerHTML = `<div class="muted">Error ${r.status} (¿API key válida?)</div>`; return; }
+        const docs = await r.json();
+        if (!docs.length) { $("docs").innerHTML = `<div class="muted">Aún no hay documentos.</div>`; return; }
+        $("docs").innerHTML = docs.map(d => `
+          <div class="doc">
+            <input type="checkbox" ${selected.has(d.id) ? "checked" : ""} onchange="toggle('${d.id}', this.checked)" ${d.status === 'completed' ? '' : 'disabled'} />
+            <span style="flex:1">${escapeHtml(d.filename)} <span class="muted">· ${d.chunks} chunks</span></span>
+            <span class="badge ${d.status}">${d.status}</span>
+          </div>`).join("");
+        updateSel();
+      } catch (e) { $("docs").innerHTML = `<div class="muted">Error de red.</div>`; }
+    }
+    function toggle(id, on) { on ? selected.add(id) : selected.delete(id); updateSel(); }
+    function updateSel(){ $("selInfo").textContent = selected.size ? `${selected.size} documento(s) seleccionado(s)` : "Selecciona documentos (completados) para preguntar."; }
+
+    async function ask() {
+      const q = $("question").value.trim();
+      if (!q) return;
+      if (!selected.size) return alert("Selecciona al menos un documento completado.");
+      addMsg("user", q);
+      $("question").value = "";
+      const bot = addMsg("bot", "");
+      $("askBtn").disabled = true;
+      try {
+        const r = await fetch("/api/v1/chats/query", {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ question: q, document_ids: [...selected], stream: true })
+        });
+        if (!r.ok || !r.body) { bot.textContent = "Error: " + r.status; return; }
+        const reader = r.body.getReader(); const dec = new TextDecoder();
+        let buf = "", answer = "";
+        while (true) {
+          const { done, value } = await reader.read(); if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf("\n\n")) >= 0) {
+            const raw = buf.slice(0, i); buf = buf.slice(i + 2);
+            let ev = "message", data = "";
+            raw.split("\n").forEach(l => { if (l.startsWith("event:")) ev = l.slice(6).trim(); else if (l.startsWith("data:")) data += l.slice(5).trim(); });
+            if (!data) continue;
+            const payload = JSON.parse(data);
+            if (ev === "token") { answer += payload.delta || ""; bot.textContent = answer; scroll(); }
+            else if (ev === "done") { renderSources(bot, payload.sources || []); scroll(); }
+          }
+        }
+      } catch (e) { bot.textContent = "Error de red: " + e.message; }
+      finally { $("askBtn").disabled = false; }
+    }
+
+    function addMsg(role, text) { const d = document.createElement("div"); d.className = "msg " + role; d.textContent = text; $("messages").appendChild(d); scroll(); return d; }
+    function renderSources(bot, sources) {
+      if (!sources.length) return;
+      const s = document.createElement("div"); s.className = "sources";
+      s.innerHTML = "<b>Fuentes:</b><br/>" + sources.map(x => `· pág. ${x.page}: ${escapeHtml(x.text_snippet || "")}`).join("<br/>");
+      bot.appendChild(s);
+    }
+    function scroll(){ $("messages").scrollTop = $("messages").scrollHeight; }
+    function escapeHtml(s){ return (s||"").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  </script>
+</body>
+</html>

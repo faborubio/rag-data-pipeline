@@ -5,6 +5,17 @@ module Api
     class DocumentsController < BaseController
       MAX_SIZE = 20.megabytes
 
+      # GET /api/v1/documents
+      def index
+        documents = current_tenant.documents
+                                   .left_joins(:document_chunks)
+                                   .select("documents.*, COUNT(document_chunks.id) AS chunks_count")
+                                   .group("documents.id")
+                                   .order(created_at: :desc)
+                                   .limit(100)
+        render json: documents.map { |d| serialize(d).merge(chunks: d.chunks_count.to_i) }
+      end
+
       # POST /api/v1/documents  (multipart, field: file)
       def create
         file = params[:file]

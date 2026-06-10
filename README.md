@@ -146,6 +146,17 @@ data: {"sources":[...],"done":true}
 
 **Rate limiting:** cada API key tiene un presupuesto de peticiones por minuto (configurable con `RATE_LIMIT_PER_MINUTE`, por defecto 60). Al excederlo se responde `429 Too Many Requests` con cabecera `Retry-After`.
 
+## 🖥️ Demo visual
+
+Hay una página de demo (sin build, servida por el propio Rails) para subir PDFs y **chatear con streaming** sobre ellos:
+
+```bash
+bin/dev                 # levanta web + worker
+# crea un tenant y copia su API key:
+bin/rails runner 'puts Tenant.create!(name: "Demo").api_key'
+```
+Abre **http://localhost:3000/demo.html**, pega la API key, sube un PDF y pregúntale. La respuesta llega token por token (SSE) citando las páginas fuente.
+
 ## ✅ Requisitos
 
 - **Ruby** 3.3.0+
