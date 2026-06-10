@@ -4,6 +4,8 @@
 
 **Pipeline de ingestión RAG (Retrieval-Augmented Generation) de nivel producción** para procesar, fragmentar y vectorizar documentos PDF corporativos a gran escala, con búsqueda semántica de baja latencia y aislamiento estricto por inquilino (*multi-tenancy*).
 
+[![CI](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-53%20passing-22c55e)](test/)
 [![Ruby](https://img.shields.io/badge/Ruby-3.3.11-CC342D?logo=ruby&logoColor=white)](.ruby-version)
 [![Rails](https://img.shields.io/badge/Rails-8.1-CC0000?logo=rubyonrails&logoColor=white)](Gemfile)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](config/database.yml)
@@ -19,6 +21,17 @@
 Este proyecto implementa un backend RAG construido sobre el ecosistema **moderno de Ruby on Rails 8**, sin depender de servicios externos para el almacenamiento vectorial. Permite a múltiples clientes (*tenants*) subir documentos PDF, procesarlos de forma asíncrona y realizar consultas en lenguaje natural que devuelven respuestas **citando las fuentes exactas** (documento y página).
 
 El objetivo es demostrar habilidades avanzadas de **ingeniería de datos, concurrencia, seguridad y optimización de infraestructura backend**.
+
+## ✨ Características destacadas
+
+- 🧠 **Búsqueda semántica vectorial** con `pgvector` + índice **HNSW** (distancia coseno), sin SaaS externo.
+- 🏢 **Multi-tenancy** con aislamiento estricto por `tenant_id` en cada consulta.
+- 🔐 **API keys cifradas en reposo** (Lockbox) con búsqueda por *blind index*.
+- ⚙️ **Pipeline de ingestión asíncrono** (Solid Queue): `pdftotext` → chunking → embeddings por lotes, con reintentos y *circuit breaker*.
+- 💬 **Respuestas en streaming (SSE)** token por token, citando documento y página.
+- 🚦 **Rate limiting por tenant** (rack-attack) y **caché distribuida** (Solid Cache sobre PostgreSQL).
+- 📈 **Observabilidad**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics`.
+- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 53 tests.
 
 ## 🏗️ Arquitectura
 
