@@ -12,5 +12,6 @@ test:
   <<: *default
 
 production:
-  database: cache
+  # Single-database setup: Solid Cache lives in the primary database.
+  database: primary
   <<: *default

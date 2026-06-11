@@ -85,20 +85,8 @@ test:
 # for a full overview on how database connection configuration can be specified.
 #
 production:
-  primary: &primary_production
+  # Single database for the whole stack (primary holds Solid Queue + Solid Cache
+  # tables too). Connection comes from DATABASE_URL.
+  primary:
     <<: *default
-    database: rag_data_proyecto_production
-    username: rag_data_proyecto
-    password: <%= ENV["RAG_DATA_PROYECTO_DATABASE_PASSWORD"] %>
-  cache:
-    <<: *primary_production
-    database: rag_data_proyecto_production_cache
-    migrations_paths: db/cache_migrate
-  queue:
-    <<: *primary_production
-    database: rag_data_proyecto_production_queue
-    migrations_paths: db/queue_migrate
-  cable:
-    <<: *primary_production
-    database: rag_data_proyecto_production_cable
-    migrations_paths: db/cable_migrate
+    url: <%= ENV["DATABASE_URL"] %>
