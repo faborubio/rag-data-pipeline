@@ -278,7 +278,9 @@ En desarrollo, sin esa variable, los spans se imprimen en consola (exporter de c
 
 ## 🚢 Despliegue
 
-El proyecto está preparado para empaquetarse en Docker y desplegarse con **Kamal** (ver [`config/deploy.yml`](config/deploy.yml)), usando la imagen `ankane/pgvector` como accesorio de base de datos para *zero-downtime deployments*.
+Producción corre en una VPS (Google Cloud) con **Docker Compose** ([`compose.production.yml`](compose.production.yml)): Rails + pgvector + **Caddy** como reverse proxy con HTTPS automático (Let's Encrypt) y security headers, sirviendo la [demo en vivo](https://fabianragpipeline.duckdns.org/demo.html). El procedimiento paso a paso, la verificación post-deploy y los *gotchas* conocidos (p. ej. por qué un `caddy reload` no basta tras sincronizar el `Caddyfile`) están documentados en **[DEPLOY.md](DEPLOY.md)**.
+
+También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/deploy.yml)) como alternativa, aunque el despliegue activo es el de Compose.
 
 ## 🗺️ Roadmap
 
