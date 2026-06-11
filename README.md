@@ -5,7 +5,7 @@
 **Pipeline de ingestión RAG (Retrieval-Augmented Generation) de nivel producción** para procesar, fragmentar y vectorizar documentos PDF corporativos a gran escala, con búsqueda semántica de baja latencia y aislamiento estricto por inquilino (*multi-tenancy*).
 
 [![CI](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-53%20passing-22c55e)](test/)
+[![Tests](https://img.shields.io/badge/tests-57%20passing-22c55e)](test/)
 [![Ruby](https://img.shields.io/badge/Ruby-3.3.11-CC342D?logo=ruby&logoColor=white)](.ruby-version)
 [![Rails](https://img.shields.io/badge/Rails-8.1-CC0000?logo=rubyonrails&logoColor=white)](Gemfile)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](config/database.yml)
@@ -34,8 +34,8 @@ El objetivo es demostrar habilidades avanzadas de **ingeniería de datos, concur
 - ⚙️ **Pipeline de ingestión asíncrono** (Solid Queue): `pdftotext` → chunking → embeddings por lotes, con reintentos y *circuit breaker*.
 - 💬 **Respuestas en streaming (SSE)** token por token, citando documento y página.
 - 🚦 **Rate limiting por tenant** (rack-attack) y **caché distribuida** (Solid Cache sobre PostgreSQL).
-- 📈 **Observabilidad**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics`.
-- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 53 tests.
+- 📈 **Observabilidad (3 pilares)**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics` + **tracing distribuido OpenTelemetry** (spans `rag.*`, exporter OTLP).
+- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 57 tests.
 
 ## 🏗️ Arquitectura
 
@@ -210,6 +210,7 @@ bin/dev
 |----------|-------------|
 | `OPENAI_API_KEY` | Habilita embeddings y respuestas reales con OpenAI. **Sin ella, el sistema usa fallbacks deterministas** para que todo el pipeline funcione localmente sin secretos. |
 | `LOCKBOX_MASTER_KEY` / `BLIND_INDEX_MASTER_KEY` | Alternativa a las credenciales de Rails para entornos en contenedor. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Activa el envío de trazas OpenTelemetry vía OTLP al colector/backend indicado (Jaeger, Grafana Tempo, Honeycomb…). Sin ella no se exporta nada (en desarrollo se imprime en consola). |
 
 ## 🧪 Crear un tenant y probar
 
@@ -266,6 +267,15 @@ rag_ingestions_total{status="completed"} 1.0
 
 **Caché distribuida (Solid Cache sobre PostgreSQL):** la caché semántica de consultas y los contadores de rate limiting viven en Postgres, así que son **consistentes entre procesos/instancias**. En la práctica, una consulta repetida baja de ~144ms a ~2ms (cache hit).
 
+**Tracing distribuido (OpenTelemetry):** el tercer pilar de observabilidad, junto a logs y métricas. Auto-instrumenta Rack/Action Pack, Active Record (pgvector), Net::HTTP (OpenAI) y Active Job, y añade spans propios del pipeline — `rag.query` → `rag.embed` / `rag.search` / `rag.generate` en el Read Path, y `rag.ingest` → `rag.extract` / `rag.chunk` / `rag.embed` en el Write Path. Gracias a la propagación de contexto de Active Job, **una sola traza enlaza el `POST /documents` síncrono con el `DocumentIngestionJob` asíncrono** (cruzando el límite de procesos). El desglose por span revela exactamente dónde se va la latencia (típicamente la llamada al LLM domina el tiempo de la consulta).
+
+Sin configuración no exporta nada (cero dependencias para correr local); se activa apuntando a cualquier backend OTLP:
+```bash
+# Enviar trazas a un colector / Jaeger / Grafana Tempo / Honeycomb
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
+```
+En desarrollo, sin esa variable, los spans se imprimen en consola (exporter de consola) para inspeccionarlos al instante.
+
 ## 🚢 Despliegue
 
 El proyecto está preparado para empaquetarse en Docker y desplegarse con **Kamal** (ver [`config/deploy.yml`](config/deploy.yml)), usando la imagen `ankane/pgvector` como accesorio de base de datos para *zero-downtime deployments*.
@@ -278,13 +288,13 @@ El proyecto está preparado para empaquetarse en Docker y desplegarse con **Kama
 - [x] Pipeline de ingestión asíncrono
 - [x] Endpoint de consulta RAG (Read Path)
 - [x] Autenticación por tenant
-- [x] Suite de tests automatizados (Minitest, 49 tests)
+- [x] Suite de tests automatizados (Minitest, 57 tests)
 - [x] Rate limiting por tenant (rack-attack)
 - [x] Streaming de respuestas (SSE)
 - [x] Worker de Solid Queue (proceso `bin/jobs` / embebido en Puma)
 - [x] Observabilidad (logs JSON + métricas RAG + endpoint Prometheus `/metrics`)
 - [x] Caché y rate limiting distribuidos (Solid Cache sobre PostgreSQL)
-- [ ] Tracing distribuido (OpenTelemetry)
+- [x] Tracing distribuido (OpenTelemetry: auto-instrumentación + spans `rag.*`, exporter OTLP)
 
 ## 📄 Licencia
 

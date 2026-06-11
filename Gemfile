@@ -26,6 +26,11 @@ gem "rack-attack"
 gem "lograge"
 # Prometheus metrics exposed at /metrics
 gem "prometheus-client"
+# Distributed tracing: OpenTelemetry SDK + auto-instrumentation (Rack/Rails/PG/Net::HTTP/Active Job)
+# and an OTLP exporter (activated by setting OTEL_EXPORTER_OTLP_ENDPOINT).
+gem "opentelemetry-sdk"
+gem "opentelemetry-instrumentation-all"
+gem "opentelemetry-exporter-otlp"
 # Use the Puma web server [https://github.com/puma/puma]
 gem "puma", ">= 5.0"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]

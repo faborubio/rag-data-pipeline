@@ -12,4 +12,10 @@ module Rag
   def self.llm_breaker
     @llm_breaker ||= CircuitBreaker.new(name: "openai_llm")
   end
+
+  # Shared OpenTelemetry tracer for the custom `rag.*` spans. Returns a no-op
+  # tracer if the SDK is not configured, so callers never need to guard.
+  def self.tracer
+    OpenTelemetry.tracer_provider.tracer("rag-data-pipeline")
+  end
 end

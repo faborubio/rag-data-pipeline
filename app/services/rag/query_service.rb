@@ -15,34 +15,50 @@ module Rag
     end
 
     def call(tenant:, question:, document_ids:)
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      cache_hit = true
+      Rag.tracer.in_span("rag.query", attributes: {
+        "rag.documents.count" => document_ids.size,
+        "rag.question.length" => question.to_s.length
+      }) do |span|
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        cache_hit = true
 
-      payload = Rails.cache.fetch(cache_key(tenant, question, document_ids), expires_in: 1.hour) do
-        cache_hit = false
-        retrieve_and_generate(tenant, question, document_ids)
+        payload = Rails.cache.fetch(cache_key(tenant, question, document_ids), expires_in: 1.hour) do
+          cache_hit = false
+          retrieve_and_generate(tenant, question, document_ids)
+        end
+
+        latency_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
+        Current.rag.merge!(cache_hit: cache_hit, sources: payload[:sources].size, latency_ms: latency_ms)
+        record_metrics(latency_ms, cache_hit)
+        span.add_attributes(
+          "rag.cache_hit" => cache_hit,
+          "rag.sources.count" => payload[:sources].size,
+          "rag.latency_ms" => latency_ms
+        )
+        Result.new(answer: payload[:answer], sources: payload[:sources], latency_ms: latency_ms)
       end
-
-      latency_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
-      Current.rag.merge!(cache_hit: cache_hit, sources: payload[:sources].size, latency_ms: latency_ms)
-      record_metrics(latency_ms, cache_hit)
-      Result.new(answer: payload[:answer], sources: payload[:sources], latency_ms: latency_ms)
     end
 
     # Retrieval only (no generation): used by the streaming Read Path, which
     # generates the answer token-by-token after fetching the context.
     # Returns { contexts: [...], sources: [...] }.
     def retrieve(tenant:, question:, document_ids:)
-      query_vector = measure(:embed_ms) { @embedder.embed_one(question) }
+      query_vector = measure(:embed_ms) do
+        Rag.tracer.in_span("rag.embed") { @embedder.embed_one(question) }
+      end
 
       # Strict tenant isolation + restriction to the allowed document_ids.
       chunks = measure(:search_ms) do
-        DocumentChunk
-          .for_tenant(tenant)
-          .where(document_id: document_ids)
-          .nearest_neighbors(:embedding, query_vector, distance: "cosine")
-          .limit(TOP_K)
-          .to_a
+        Rag.tracer.in_span("rag.search", attributes: { "rag.top_k" => TOP_K }) do |span|
+          rows = DocumentChunk
+                 .for_tenant(tenant)
+                 .where(document_id: document_ids)
+                 .nearest_neighbors(:embedding, query_vector, distance: "cosine")
+                 .limit(TOP_K)
+                 .to_a
+          span.set_attribute("rag.chunks.count", rows.size)
+          rows
+        end
       end
 
       contexts = chunks.map do |chunk|
@@ -59,7 +75,9 @@ module Rag
 
     def retrieve_and_generate(tenant, question, document_ids)
       retrieval = retrieve(tenant: tenant, question: question, document_ids: document_ids)
-      answer = @llm.answer(question: question, contexts: retrieval[:contexts])
+      answer = Rag.tracer.in_span("rag.generate") do
+        @llm.answer(question: question, contexts: retrieval[:contexts])
+      end
       { answer: answer, sources: retrieval[:sources] }
     end
 
