@@ -29,4 +29,34 @@ class Rag::EmbedderTest < ActiveSupport::TestCase
     inputs = Array.new(45) { |i| "text-#{i}" }
     assert_equal 45, embedder.embed(inputs).size
   end
+
+  test "lexically similar texts are closer than disjoint ones" do
+    embedder = Rag::Embedder.new(api_key: nil)
+    fire = embedder.embed_one("protocolo de incendio y evacuacion")
+    fire_question = embedder.embed_one("que hacer ante un incendio")
+    unrelated = embedder.embed_one("politica vacaciones empleados nuevos")
+
+    assert_operator cosine(fire, fire_question), :>, cosine(fire, unrelated),
+      "shared tokens should yield higher cosine similarity"
+  end
+
+  test "fallback is invariant to case, accents and punctuation" do
+    embedder = Rag::Embedder.new(api_key: nil)
+    assert_equal embedder.embed_one("¿Incendio?"), embedder.embed_one("incendio")
+    assert_equal embedder.embed_one("Evacuación"), embedder.embed_one("evacuacion")
+  end
+
+  test "token-less input yields a valid unit vector, not the zero vector" do
+    embedder = Rag::Embedder.new(api_key: nil)
+    vector = embedder.embed_one("¡¿?!")
+
+    assert_equal 1536, vector.size
+    assert_in_delta 1.0, Math.sqrt(vector.sum { |x| x * x }), 1e-9
+  end
+
+  private
+
+  def cosine(a, b)
+    a.zip(b).sum { |x, y| x * y }
+  end
 end

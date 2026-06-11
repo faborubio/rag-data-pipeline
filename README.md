@@ -5,7 +5,7 @@
 **Pipeline de ingestión RAG (Retrieval-Augmented Generation) de nivel producción** para procesar, fragmentar y vectorizar documentos PDF corporativos a gran escala, con búsqueda semántica de baja latencia y aislamiento estricto por inquilino (*multi-tenancy*).
 
 [![CI](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-57%20passing-22c55e)](test/)
+[![Tests](https://img.shields.io/badge/tests-68%20passing-22c55e)](test/)
 [![Ruby](https://img.shields.io/badge/Ruby-3.3.11-CC342D?logo=ruby&logoColor=white)](.ruby-version)
 [![Rails](https://img.shields.io/badge/Rails-8.1-CC0000?logo=rubyonrails&logoColor=white)](Gemfile)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](config/database.yml)
@@ -35,7 +35,8 @@ El objetivo es demostrar habilidades avanzadas de **ingeniería de datos, concur
 - 💬 **Respuestas en streaming (SSE)** token por token, citando documento y página.
 - 🚦 **Rate limiting por tenant** (rack-attack) y **caché distribuida** (Solid Cache sobre PostgreSQL).
 - 📈 **Observabilidad (3 pilares)**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics` + **tracing distribuido OpenTelemetry** (spans `rag.*`, exporter OTLP).
-- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 57 tests.
+- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 68 tests.
+- 📐 **Evals de calidad RAG**: golden dataset + recall@5/MRR/keywords como **gate en CI**.
 
 ## 🏗️ Arquitectura
 
@@ -276,6 +277,25 @@ export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
 ```
 En desarrollo, sin esa variable, los spans se imprimen en consola (exporter de consola) para inspeccionarlos al instante.
 
+## 📐 Evals de calidad RAG
+
+La suite de tests verifica *corrección*; los **evals** verifican *calidad de retrieval y respuesta* — y **bloquean CI si regresa**. Un golden dataset versionado ([`config/evals/golden_set.yml`](config/evals/golden_set.yml)) define 3 manuales sintéticos (~21 páginas) y 24 preguntas con páginas y keywords esperadas. El runner ([`Rag::Evals::Runner`](app/services/rag/evals/runner.rb)) ingiere el corpus por el **pipeline real** (PDF → `pdftotext` → chunking → embeddings → pgvector) y mide cada pregunta vía `Rag::QueryService`:
+
+| Métrica | Qué mide | Baseline (fallback léxico) |
+|---|---|---|
+| **Recall@5** | ¿La página correcta del documento correcto aparece en las fuentes? | 0.917 |
+| **MRR** | ¿En qué posición del ranking aparece? | 0.826 |
+| **Keyword presence** | ¿La respuesta contiene los datos esperados? | 0.750 |
+
+El gate ([`test/evals/rag_quality_test.rb`](test/evals/rag_quality_test.rb)) corre dentro de `rails test` (y por tanto en CI) con umbrales calibrados bajo el baseline. Funciona **sin API key**: el fallback del embedder usa *bag-of-words con feature hashing* (determinista, similitud léxica real), así que los evals miden retrieval significativo también en CI. El mismo harness corre contra OpenAI real:
+
+```bash
+bin/rails rag:evals                      # tier fallback (tabla por pregunta + agregados)
+OPENAI_API_KEY=sk-... bin/rails rag:evals  # tier real (embeddings + LLM de OpenAI)
+```
+
+El golden set incluye preguntas *difíciles* a propósito (vocabulario divergente: "elevador" vs "ascensor", "clave" vs "contrasena") que el retrieval léxico falla — son el margen de mejora medible para los siguientes pasos del roadmap (hybrid search, reranking).
+
 ## 🚢 Despliegue
 
 Producción corre en una VPS (Google Cloud) con **Docker Compose** ([`compose.production.yml`](compose.production.yml)): Rails + pgvector + **Caddy** como reverse proxy con HTTPS automático (Let's Encrypt) y security headers, sirviendo la [demo en vivo](https://fabianragpipeline.duckdns.org/demo.html). El procedimiento paso a paso, la verificación post-deploy y los *gotchas* conocidos (p. ej. por qué un `caddy reload` no basta tras sincronizar el `Caddyfile`) están documentados en **[DEPLOY.md](DEPLOY.md)**.
@@ -290,13 +310,14 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Pipeline de ingestión asíncrono
 - [x] Endpoint de consulta RAG (Read Path)
 - [x] Autenticación por tenant
-- [x] Suite de tests automatizados (Minitest, 57 tests)
+- [x] Suite de tests automatizados (Minitest, 68 tests)
 - [x] Rate limiting por tenant (rack-attack)
 - [x] Streaming de respuestas (SSE)
 - [x] Worker de Solid Queue (proceso `bin/jobs` / embebido en Puma)
 - [x] Observabilidad (logs JSON + métricas RAG + endpoint Prometheus `/metrics`)
 - [x] Caché y rate limiting distribuidos (Solid Cache sobre PostgreSQL)
 - [x] Tracing distribuido (OpenTelemetry: auto-instrumentación + spans `rag.*`, exporter OTLP)
+- [x] Evals de calidad RAG (golden dataset + recall@5/MRR/keywords como gate en CI)
 
 ## 📄 Licencia
 

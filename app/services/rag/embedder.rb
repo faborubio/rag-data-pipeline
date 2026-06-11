@@ -43,11 +43,37 @@ module Rag
       response.fetch("data").sort_by { |row| row["index"] }.map { |row| row.fetch("embedding") }
     end
 
-    # Deterministic, L2-normalized vector derived from the text hash.
+    # Deterministic bag-of-words embedding via signed feature hashing: each
+    # token lands in a SHA256-derived bucket with sign +/-1, so lexically
+    # similar texts get high cosine similarity without any external API. This
+    # makes local retrieval (and the CI quality evals) meaningful.
     def fake_embedding(text)
-      seed = Digest::SHA256.hexdigest(text.to_s).to_i(16) % (2**31)
-      rng = Random.new(seed)
-      vector = Array.new(Rag::EMBEDDING_DIMENSIONS) { rng.rand(-1.0..1.0) }
+      tokens = tokenize(text)
+      return single_bucket_vector(text) if tokens.empty?
+
+      vector = Array.new(Rag::EMBEDDING_DIMENSIONS, 0.0)
+      tokens.each do |token|
+        digest = Digest::SHA256.digest(token)
+        index = digest[0, 4].unpack1("N") % Rag::EMBEDDING_DIMENSIONS
+        sign = digest.getbyte(4).odd? ? 1.0 : -1.0
+        vector[index] += sign
+      end
+      normalize_l2(vector)
+    end
+
+    # Lowercase, accent-stripped word tokens, so "¿Incendio?" == "incendio".
+    def tokenize(text)
+      text.to_s.unicode_normalize(:nfkd).gsub(/\p{Mn}/, "").downcase.scan(/[a-z0-9]+/)
+    end
+
+    # Token-less input (empty/punctuation-only): a deterministic unit vector
+    # keyed on the raw text, never the zero vector.
+    def single_bucket_vector(text)
+      index = Digest::SHA256.digest(text.to_s)[0, 4].unpack1("N") % Rag::EMBEDDING_DIMENSIONS
+      Array.new(Rag::EMBEDDING_DIMENSIONS, 0.0).tap { |v| v[index] = 1.0 }
+    end
+
+    def normalize_l2(vector)
       norm = Math.sqrt(vector.sum { |x| x * x })
       norm.zero? ? vector : vector.map { |x| x / norm }
     end

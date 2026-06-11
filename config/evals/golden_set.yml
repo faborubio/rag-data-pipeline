@@ -1,0 +1,172 @@
+# Golden set para los evals de calidad RAG (ver Rag::Evals::Runner).
+#
+# IMPORTANTE: los textos del corpus van SIN acentos, enie ni parentesis —
+# PdfBuilder los incrusta como strings literales PDF (Helvetica) y pdftotext
+# no garantiza extraer otros encodings. Las preguntas y keywords SI pueden
+# llevar acentos: se normalizan antes de comparar.
+#
+# Reglas de diseno:
+#   * Paginas < 400 caracteres => 1 chunk por pagina (CHUNK_SIZE=500), asi la
+#     cita de pagina es exacta y los hechos no se mezclan.
+#   * Cada pagina tiene un "ancla lexica" unica, y algunos terminos se repiten
+#     entre manuales (p.ej. "90 dias") para que el documento correcto importe.
+#   * Las preguntas marcadas (dificil) usan vocabulario divergente a proposito:
+#     dejan margen de mejora medible al pasar a embeddings reales/hybrid search.
+
+corpus:
+  manual_seguridad:
+    pages:
+      - "Capitulo 1. Protocolo de incendio. Ante un incendio active la alarma roja y evacue el edificio por las escaleras de emergencia. Queda prohibido usar el ascensor durante una evacuacion."
+      - "Capitulo 2. Extintores. Los extintores de clase B se ubican en cada pasillo y deben inspeccionarse cada 6 meses por el brigadista asignado de cada piso."
+      - "Capitulo 3. Punto de encuentro. El punto de encuentro oficial es el estacionamiento norte. Cada jefe de area pasa lista con el registro de asistencia del dia."
+      - "Capitulo 4. Primeros auxilios. Los botiquines se encuentran junto a las recepciones. El personal certificado en primeros auxilios porta un gafete verde."
+      - "Capitulo 5. Sismos. Durante un sismo alejese de ventanas y ubiquese en las zonas de seguridad marcadas con circulos amarillos. No corra por los pasillos."
+      - "Capitulo 6. Reporte de incidentes. Todo incidente de seguridad se reporta en las primeras 24 horas mediante el formulario INC-01 enviado al comite de seguridad."
+      - "Capitulo 7. Visitantes. Los visitantes deben portar credencial naranja en todo momento y permanecer acompanados por un empleado anfitrion."
+
+  manual_rrhh:
+    pages:
+      - "Capitulo 1. Periodo de prueba. Todo empleado nuevo tiene un periodo de prueba de 90 dias con evaluacion final del supervisor directo."
+      - "Capitulo 2. Vacaciones. Los empleados acumulan 15 dias habiles de vacaciones por ano trabajado, solicitadas con al menos 2 semanas de anticipacion."
+      - "Capitulo 3. Trabajo remoto. El esquema hibrido permite hasta 3 dias remotos por semana, coordinados con el equipo y registrados en el calendario compartido."
+      - "Capitulo 4. Nomina. La nomina se paga los dias 15 y 30 de cada mes mediante deposito bancario. Los recibos se publican en el portal del empleado."
+      - "Capitulo 5. Capacitacion. Cada empleado dispone de un presupuesto anual de 500 dolares para cursos y certificaciones aprobadas por su gerente."
+      - "Capitulo 6. Licencia parental. La licencia parental es de 12 semanas pagadas y puede iniciarse hasta 4 semanas antes de la fecha probable de parto."
+      - "Capitulo 7. Codigo de vestimenta. El codigo de vestimenta es casual de negocios. Los viernes se permite vestimenta informal salvo reuniones con clientes."
+
+  manual_it:
+    pages:
+      - "Capitulo 1. Contrasenas. Las contrasenas corporativas deben tener minimo 14 caracteres y rotarse cada 90 dias mediante el portal interno de identidad."
+      - "Capitulo 2. Soporte tecnico. Las solicitudes de soporte se levantan en la mesa de ayuda con el ticket HELP y se atienden segun severidad en menos de 8 horas."
+      - "Capitulo 3. Respaldos. Los respaldos de informacion se ejecutan cada noche a las 2 am y se retienen por 30 dias en el almacenamiento cifrado."
+      - "Capitulo 4. VPN. El acceso remoto a sistemas internos requiere la VPN corporativa con doble factor de autenticacion configurado en la aplicacion movil."
+      - "Capitulo 5. Equipos. Las laptops se renuevan cada 3 anos. El equipo anterior se devuelve a inventario para su borrado seguro certificado."
+      - "Capitulo 6. Phishing. Los correos sospechosos se reportan con el boton reportar phishing del cliente de correo. Nunca abra adjuntos de remitentes desconocidos."
+      - "Capitulo 7. Software. Solo se instala software del catalogo aprobado. Las licencias especiales se solicitan al area de TI con justificacion del gerente."
+
+questions:
+  # --- manual_seguridad ---
+  - id: seg-001
+    document: manual_seguridad
+    question: "¿Qué debo hacer en caso de incendio?"
+    expected_pages: [1]
+    expected_keywords: ["alarma", "escaleras"]
+  - id: seg-002
+    document: manual_seguridad
+    question: "¿Cada cuánto se inspeccionan los extintores?"
+    expected_pages: [2]
+    expected_keywords: ["6 meses", "extintores"]
+  - id: seg-003
+    document: manual_seguridad
+    question: "¿Cuál es el punto de encuentro en una evacuación?"
+    expected_pages: [3]
+    expected_keywords: ["estacionamiento norte"]
+  - id: seg-004
+    document: manual_seguridad
+    question: "¿Dónde están los botiquines de primeros auxilios?"
+    expected_pages: [4]
+    expected_keywords: ["recepciones"]
+  - id: seg-005
+    document: manual_seguridad
+    question: "¿Qué hago durante un sismo?"
+    expected_pages: [5]
+    expected_keywords: ["zonas de seguridad", "ventanas"]
+  - id: seg-006
+    document: manual_seguridad
+    question: "¿En cuánto tiempo se reporta un incidente de seguridad?"
+    expected_pages: [6]
+    expected_keywords: ["24 horas", "INC-01"]
+  - id: seg-007
+    document: manual_seguridad
+    question: "¿Qué credencial deben portar los visitantes?"
+    expected_pages: [7]
+    expected_keywords: ["naranja"]
+  - id: seg-008 # (dificil) vocabulario divergente: "elevador" no aparece en el corpus
+    document: manual_seguridad
+    question: "¿Puedo usar el elevador si hay fuego?"
+    expected_pages: [1]
+    expected_keywords: ["ascensor", "prohibido"]
+
+  # --- manual_rrhh ---
+  - id: rh-001
+    document: manual_rrhh
+    question: "¿Cuánto dura el periodo de prueba de un empleado nuevo?"
+    expected_pages: [1]
+    expected_keywords: ["90 dias"]
+  - id: rh-002
+    document: manual_rrhh
+    question: "¿Cuántos días de vacaciones acumulo por año?"
+    expected_pages: [2]
+    expected_keywords: ["15 dias"]
+  - id: rh-003
+    document: manual_rrhh
+    question: "¿Cuántos días de trabajo remoto se permiten por semana?"
+    expected_pages: [3]
+    expected_keywords: ["3 dias"]
+  - id: rh-004
+    document: manual_rrhh
+    question: "¿Qué días se paga la nómina?"
+    expected_pages: [4]
+    expected_keywords: ["15", "30"]
+  - id: rh-005
+    document: manual_rrhh
+    question: "¿Cuál es el presupuesto anual de capacitación por empleado?"
+    expected_pages: [5]
+    expected_keywords: ["500 dolares"]
+  - id: rh-006
+    document: manual_rrhh
+    question: "¿Cuántas semanas dura la licencia parental?"
+    expected_pages: [6]
+    expected_keywords: ["12 semanas"]
+  - id: rh-007
+    document: manual_rrhh
+    question: "¿Cuál es el código de vestimenta los viernes?"
+    expected_pages: [7]
+    expected_keywords: ["informal"]
+  - id: rh-008 # (dificil) "maternidad" no aparece; el corpus dice "licencia parental"
+    document: manual_rrhh
+    question: "¿Cuánto tiempo de baja por maternidad me corresponde?"
+    expected_pages: [6]
+    expected_keywords: ["12 semanas"]
+
+  # --- manual_it ---
+  - id: it-001
+    document: manual_it
+    question: "¿Cuántos caracteres debe tener una contraseña corporativa?"
+    expected_pages: [1]
+    expected_keywords: ["14 caracteres"]
+  - id: it-002
+    document: manual_it
+    question: "¿Cómo levanto una solicitud de soporte técnico?"
+    expected_pages: [2]
+    expected_keywords: ["mesa de ayuda"]
+  - id: it-003
+    document: manual_it
+    question: "¿A qué hora se ejecutan los respaldos y cuánto se retienen?"
+    expected_pages: [3]
+    expected_keywords: ["2 am", "30 dias"]
+  - id: it-004
+    document: manual_it
+    question: "¿Qué necesito para el acceso remoto a sistemas internos?"
+    expected_pages: [4]
+    expected_keywords: ["vpn", "doble factor"]
+  - id: it-005
+    document: manual_it
+    question: "¿Cada cuántos años se renuevan las laptops?"
+    expected_pages: [5]
+    expected_keywords: ["3 anos"]
+  - id: it-006
+    document: manual_it
+    question: "¿Qué hago si recibo un correo de phishing?"
+    expected_pages: [6]
+    expected_keywords: ["reportar"]
+  - id: it-007
+    document: manual_it
+    question: "¿Puedo instalar cualquier software en mi equipo?"
+    expected_pages: [7]
+    expected_keywords: ["catalogo aprobado"]
+  - id: it-008 # (dificil) "clave" no aparece; el corpus dice "contrasenas"
+    document: manual_it
+    question: "¿Cada cuánto debo cambiar mi clave de acceso?"
+    expected_pages: [1]
+    expected_keywords: ["90 dias"]
