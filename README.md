@@ -12,6 +12,10 @@
 [![pgvector](https://img.shields.io/badge/pgvector-HNSW-31648C)](db/structure.sql)
 [![API Only](https://img.shields.io/badge/Mode-API--only-informational)](config/application.rb)
 
+### 🔴 [Demo en vivo → https://fabianragpipeline.duckdns.org/demo.html](https://fabianragpipeline.duckdns.org/demo.html)
+
+<sub>Desplegado 24/7 en Google Cloud (Docker Compose) con HTTPS (Let's Encrypt vía Caddy)</sub>
+
 </div>
 
 ---

@@ -26,12 +26,26 @@ services:
       RAILS_SERVE_STATIC_FILES: "1"
       SOLID_QUEUE_IN_PUMA: "1"
       WEB_CONCURRENCY: "1"
-    ports:
-      - "80:80"
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
 
+  # Reverse proxy with automatic HTTPS (Let's Encrypt) for the DuckDNS domain.
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:
