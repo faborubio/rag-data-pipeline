@@ -1,3 +1,22 @@
 fabianragpipeline.duckdns.org {
+	# Security headers (Caddy does not add these by default).
+	header {
+		# Force HTTPS for 1 year on returning visitors.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Disallow embedding in iframes (clickjacking).
+		X-Frame-Options "DENY"
+		# Disallow MIME-type sniffing.
+		X-Content-Type-Options "nosniff"
+		# Don't leak the full URL in cross-origin requests.
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	# Prometheus metrics are for the internal scraper only — not the public
+	# internet. Scrape from inside the VPS (e.g. docker exec / host curl to the
+	# web container) or whitelist the monitoring host here if one is added.
+	handle /metrics {
+		respond "Forbidden" 403
+	}
+
 	reverse_proxy web:80
 }
