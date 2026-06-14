@@ -24,6 +24,20 @@ COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
 
 
 --
+-- Name: unaccent; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION unaccent; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION unaccent IS 'text search dictionary that removes accents';
+
+
+--
 -- Name: vector; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -35,6 +49,17 @@ CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 --
 
 COMMENT ON EXTENSION vector IS 'vector data type and ivfflat and hnsw access methods';
+
+
+--
+-- Name: immutable_unaccent(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.immutable_unaccent(text) RETURNS text
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $_$
+  SELECT public.unaccent('public.unaccent', $1)
+$_$;
 
 
 SET default_tablespace = '';
@@ -730,6 +755,13 @@ ALTER TABLE ONLY public.tenants
 
 
 --
+-- Name: index_document_chunks_on_content_fts; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_document_chunks_on_content_fts ON public.document_chunks USING gin (to_tsvector('spanish'::regconfig, public.immutable_unaccent(content)));
+
+
+--
 -- Name: index_document_chunks_on_document_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1038,6 +1070,7 @@ ALTER TABLE ONLY public.solid_queue_scheduled_executions
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260612120000'),
 ('20260603120006'),
 ('20260603120005'),
 ('20260603120004'),

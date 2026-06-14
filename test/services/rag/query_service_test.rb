@@ -33,6 +33,20 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
     assert_empty result.sources
   end
 
+  test "full-text rescues an exact-term chunk the embedding ranks lower" do
+    # A chunk whose embedding is unrelated to the query (random vector) but whose
+    # text contains the exact rare term. Pure vector search would bury it; the
+    # lexical signal pulls it into the fused top-K.
+    exact = @document.document_chunks.create!(
+      content: "El formulario INC-01 se entrega al comite de seguridad.",
+      page_number: 99, embedding: sample_vector(42)
+    )
+    result = Rag::QueryService.new.call(
+      tenant: @tenant, question: "INC-01", document_ids: [ @document.id ]
+    )
+    assert_includes result.sources.map { |s| s[:page] }, exact.page_number
+  end
+
   test "never returns more than TOP_K results" do
     10.times { |i| @document.document_chunks.create!(content: "c#{i}", page_number: i, embedding: sample_vector(i)) }
     result = Rag::QueryService.new.call(tenant: @tenant, question: "algo", document_ids: [ @document.id ])

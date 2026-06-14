@@ -35,4 +35,24 @@ class DocumentChunkTest < ActiveSupport::TestCase
     assert_equal 1, DocumentChunk.for_tenant(@tenant).count
     assert_equal 0, DocumentChunk.for_tenant(other_tenant).count
   end
+
+  test "full_text_search matches Spanish content and ignores accents" do
+    fire = @document.document_chunks.create!(
+      content: "Protocolo de incendio: evacuar por las escaleras.", embedding: sample_vector(1), page_number: 1
+    )
+    @document.document_chunks.create!(
+      content: "Las contrasenas rotan cada 90 dias.", embedding: sample_vector(2), page_number: 2
+    )
+
+    # Query carries an accent the stored text lacks; immutable_unaccent bridges it.
+    results = DocumentChunk.full_text_search("incendió")
+    assert_equal [ fire ], results.to_a
+  end
+
+  test "full_text_search tolerates arbitrary user input without raising" do
+    @document.document_chunks.create!(content: "algo", embedding: sample_vector(3), page_number: 1)
+    assert_nothing_raised do
+      DocumentChunk.full_text_search('"unbalanced & | : ( quote').to_a
+    end
+  end
 end

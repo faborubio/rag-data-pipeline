@@ -7,12 +7,13 @@ module Rag
     # fallback (CI, no API key) and live OpenAI (OPENAI_API_KEY set).
     class Runner
       # Aggregate minimums enforced by test/evals/rag_quality_test.rb and the
-      # rag:evals task. Calibrated against the lexical fallback baseline
-      # (observed: recall 0.917 / MRR 0.826 / keywords 0.750 — the only misses
-      # are the deliberately hard divergent-vocabulary questions): thresholds
-      # sit ~7-10 points below, so a genuine regression fails the gate while
-      # a single noisy question does not.
-      THRESHOLDS = { recall_at_k: 0.85, mrr: 0.75, keyword_presence: 0.65 }.freeze
+      # rag:evals task. Calibrated against the hybrid-retrieval baseline on the
+      # deterministic fallback tier (observed: recall 0.958 / MRR 0.927 /
+      # keywords 0.917 — the only remaining miss is rh-008, which needs true
+      # semantic embeddings). Thresholds sit ~6-12 points below to lock in the
+      # hybrid gain: a regression to vector-only (recall 0.917 / MRR 0.826 /
+      # keywords 0.750) trips the keyword gate.
+      THRESHOLDS = { recall_at_k: 0.90, mrr: 0.85, keyword_presence: 0.80 }.freeze
 
       Row = Struct.new(:id, :question, :document, :rank, :recall, :reciprocal_rank,
                        :keyword_presence, :answer, keyword_init: true)

@@ -5,7 +5,7 @@
 **Pipeline de ingestión RAG (Retrieval-Augmented Generation) de nivel producción** para procesar, fragmentar y vectorizar documentos PDF corporativos a gran escala, con búsqueda semántica de baja latencia y aislamiento estricto por inquilino (*multi-tenancy*).
 
 [![CI](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-68%20passing-22c55e)](test/)
+[![Tests](https://img.shields.io/badge/tests-76%20passing-22c55e)](test/)
 [![Ruby](https://img.shields.io/badge/Ruby-3.3.11-CC342D?logo=ruby&logoColor=white)](.ruby-version)
 [![Rails](https://img.shields.io/badge/Rails-8.1-CC0000?logo=rubyonrails&logoColor=white)](Gemfile)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](config/database.yml)
@@ -28,15 +28,15 @@ El objetivo es demostrar habilidades avanzadas de **ingeniería de datos, concur
 
 ## ✨ Características destacadas
 
-- 🧠 **Búsqueda semántica vectorial** con `pgvector` + índice **HNSW** (distancia coseno), sin SaaS externo.
+- 🔎 **Búsqueda híbrida**: vectorial (`pgvector` + **HNSW**, coseno) **+ full-text en español** fusionadas con **Reciprocal Rank Fusion**, sin SaaS externo.
 - 🏢 **Multi-tenancy** con aislamiento estricto por `tenant_id` en cada consulta.
 - 🔐 **API keys cifradas en reposo** (Lockbox) con búsqueda por *blind index*.
 - ⚙️ **Pipeline de ingestión asíncrono** (Solid Queue): `pdftotext` → chunking → embeddings por lotes, con reintentos y *circuit breaker*.
 - 💬 **Respuestas en streaming (SSE)** token por token, citando documento y página.
 - 🚦 **Rate limiting por tenant** (rack-attack) y **caché distribuida** (Solid Cache sobre PostgreSQL).
 - 📈 **Observabilidad (3 pilares)**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics` + **tracing distribuido OpenTelemetry** (spans `rag.*`, exporter OTLP).
-- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 68 tests.
-- 📐 **Evals de calidad RAG**: golden dataset + recall@5/MRR/keywords como **gate en CI**.
+- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 76 tests.
+- 📐 **Evals de calidad RAG**: golden dataset + recall@5/MRR/keywords como **gate en CI** (mejora medida: +10 pts MRR con búsqueda híbrida).
 
 ## 🏗️ Arquitectura
 
@@ -277,15 +277,28 @@ export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
 ```
 En desarrollo, sin esa variable, los spans se imprimen en consola (exporter de consola) para inspeccionarlos al instante.
 
+## 🔎 Búsqueda híbrida (vector + full-text con RRF)
+
+El Read Path no se queda en similitud vectorial: fusiona **dos señales complementarias** con **Reciprocal Rank Fusion**.
+
+- **Densa (pgvector, coseno + HNSW)** — captura paráfrasis y semántica: "¿qué hago si se incendia?" recupera "protocolo de incendio" aunque no compartan palabras.
+- **Léxica (full-text de Postgres, `tsvector` en español, *accent-insensitive*)** — clava términos exactos, códigos y nombres propios que el embedding diluye: "INC-01", "clase B", "VPN".
+
+Cada señal aporta sus 20 mejores candidatos y [`Rag::Rrf`](app/services/rag/rrf.rb) los fusiona por `1/(k+rank)` (k=60), sin necesidad de normalizar escalas heterogéneas (distancia coseno vs. `ts_rank`). Todo dentro de Postgres — coherente con la arquitectura *single-database* — con sub-spans OTel `rag.search.vector` y `rag.search.fulltext` para ver el peso de cada una. El full-text usa un índice **GIN** sobre `to_tsvector('spanish', immutable_unaccent(content))` y semántica **OR** rankeada (una pregunta en lenguaje natural rara vez contiene todos los términos literales).
+
+El impacto está medido por los evals (tabla abajo): las preguntas con vocabulario divergente que solo-vector rankeaba mal o perdía, el híbrido las sube a rank 1. La única que aún falla (`rh-008`: "maternidad" → "licencia parental", sin solapamiento léxico) marca el siguiente paso natural: embeddings semánticos reales + reranking.
+
 ## 📐 Evals de calidad RAG
 
 La suite de tests verifica *corrección*; los **evals** verifican *calidad de retrieval y respuesta* — y **bloquean CI si regresa**. Un golden dataset versionado ([`config/evals/golden_set.yml`](config/evals/golden_set.yml)) define 3 manuales sintéticos (~21 páginas) y 24 preguntas con páginas y keywords esperadas. El runner ([`Rag::Evals::Runner`](app/services/rag/evals/runner.rb)) ingiere el corpus por el **pipeline real** (PDF → `pdftotext` → chunking → embeddings → pgvector) y mide cada pregunta vía `Rag::QueryService`:
 
-| Métrica | Qué mide | Baseline (fallback léxico) |
-|---|---|---|
-| **Recall@5** | ¿La página correcta del documento correcto aparece en las fuentes? | 0.917 |
-| **MRR** | ¿En qué posición del ranking aparece? | 0.826 |
-| **Keyword presence** | ¿La respuesta contiene los datos esperados? | 0.750 |
+| Métrica | Qué mide | Solo vector | **Híbrido** |
+|---|---|---|---|
+| **Recall@5** | ¿La página correcta del documento correcto aparece en las fuentes? | 0.917 | **0.958** |
+| **MRR** | ¿En qué posición del ranking aparece? | 0.826 | **0.927** |
+| **Keyword presence** | ¿La respuesta contiene los datos esperados? | 0.750 | **0.917** |
+
+Las columnas son el mismo golden set antes y después de la **búsqueda híbrida** (ver abajo): el harness no solo verifica calidad, **demuestra la mejora con números** (+10 pts de MRR, +17 de keyword presence). Los umbrales del gate están fijados bajo el baseline híbrido, así que una regresión a solo-vector haría fallar CI.
 
 El gate ([`test/evals/rag_quality_test.rb`](test/evals/rag_quality_test.rb)) corre dentro de `rails test` (y por tanto en CI) con umbrales calibrados bajo el baseline. Funciona **sin API key**: el fallback del embedder usa *bag-of-words con feature hashing* (determinista, similitud léxica real), así que los evals miden retrieval significativo también en CI. El mismo harness corre contra OpenAI real:
 
@@ -310,7 +323,7 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Pipeline de ingestión asíncrono
 - [x] Endpoint de consulta RAG (Read Path)
 - [x] Autenticación por tenant
-- [x] Suite de tests automatizados (Minitest, 68 tests)
+- [x] Suite de tests automatizados (Minitest, 76 tests)
 - [x] Rate limiting por tenant (rack-attack)
 - [x] Streaming de respuestas (SSE)
 - [x] Worker de Solid Queue (proceso `bin/jobs` / embebido en Puma)
@@ -318,6 +331,8 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Caché y rate limiting distribuidos (Solid Cache sobre PostgreSQL)
 - [x] Tracing distribuido (OpenTelemetry: auto-instrumentación + spans `rag.*`, exporter OTLP)
 - [x] Evals de calidad RAG (golden dataset + recall@5/MRR/keywords como gate en CI)
+- [x] Búsqueda híbrida (pgvector + full-text en español, fusión con Reciprocal Rank Fusion)
+- [ ] Reranking con cross-encoder sobre los candidatos fusionados
 
 ## 📄 Licencia
 

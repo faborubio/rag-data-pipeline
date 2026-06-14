@@ -6,6 +6,10 @@ module Rag
   # served from Solid Cache to cut token costs (spec: Cache Semantica).
   class QueryService
     TOP_K = 5
+    # Candidates pulled from each retriever before fusion. Wider than TOP_K so a
+    # chunk ranked outside one signal's top-5 can still surface if the other
+    # signal ranks it highly.
+    CANDIDATE_POOL = 20
 
     Result = Struct.new(:answer, :sources, :latency_ms, keyword_init: true)
 
@@ -47,16 +51,27 @@ module Rag
         Rag.tracer.in_span("rag.embed") { @embedder.embed_one(question) }
       end
 
-      # Strict tenant isolation + restriction to the allowed document_ids.
+      # Hybrid retrieval: fuse dense (cosine) and lexical (full-text) candidates
+      # with Reciprocal Rank Fusion. Vector search handles paraphrase/semantics;
+      # full-text nails exact terms, codes and names the embedding may miss.
       chunks = measure(:search_ms) do
         Rag.tracer.in_span("rag.search", attributes: { "rag.top_k" => TOP_K }) do |span|
-          rows = DocumentChunk
-                 .for_tenant(tenant)
-                 .where(document_id: document_ids)
-                 .nearest_neighbors(:embedding, query_vector, distance: "cosine")
-                 .limit(TOP_K)
-                 .to_a
-          span.set_attribute("rag.chunks.count", rows.size)
+          scope = DocumentChunk.for_tenant(tenant).where(document_id: document_ids)
+
+          vector_hits = Rag.tracer.in_span("rag.search.vector") do
+            scope.nearest_neighbors(:embedding, query_vector, distance: "cosine")
+                 .limit(CANDIDATE_POOL).to_a
+          end
+          text_hits = Rag.tracer.in_span("rag.search.fulltext") do
+            scope.full_text_search(question).limit(CANDIDATE_POOL).to_a
+          end
+
+          rows = Rag::Rrf.fuse(vector_hits, text_hits, id: :id).first(TOP_K)
+          span.add_attributes(
+            "rag.vector.count" => vector_hits.size,
+            "rag.fulltext.count" => text_hits.size,
+            "rag.chunks.count" => rows.size
+          )
           rows
         end
       end
