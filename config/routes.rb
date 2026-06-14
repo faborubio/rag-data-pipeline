@@ -14,6 +14,8 @@ Rails.application.routes.draw do
       resources :documents, only: %i[index create show]
       # Read Path: synchronous RAG query.
       post "chats/query", to: "chats#query", as: :chats_query
+      # Public demo bootstrap: returns the read-only demo tenant's API key.
+      get "demo", to: "demo#show"
     end
   end
 

@@ -48,6 +48,13 @@ class Api::V1::DocumentsTest < ActionDispatch::IntegrationTest
     File.delete(fake) if fake && File.exist?(fake)
   end
 
+  test "read-only tenants cannot upload" do
+    @tenant.update!(read_only: true)
+    post api_v1_documents_url, params: { file: pdf_upload }, headers: auth_headers(@tenant)
+    assert_response :forbidden
+    assert_includes JSON.parse(response.body)["error"], "read-only"
+  end
+
   test "shows a document belonging to the tenant" do
     document = @tenant.documents.create!(filename: "a.pdf", status: :completed)
     get api_v1_document_url(document), headers: auth_headers(@tenant)

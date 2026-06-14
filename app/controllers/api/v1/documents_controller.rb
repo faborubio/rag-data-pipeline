@@ -18,6 +18,8 @@ module Api
 
       # POST /api/v1/documents  (multipart, field: file)
       def create
+        return render_error("this tenant is read-only", :forbidden) if current_tenant.read_only?
+
         file = params[:file]
         return render_error("file is required", :unprocessable_entity)        if file.blank?
         return render_error("only .pdf files are allowed", :unprocessable_entity) unless pdf?(file)

@@ -530,7 +530,8 @@ CREATE TABLE public.tenants (
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
     api_key_ciphertext text,
-    api_key_bidx character varying
+    api_key_bidx character varying,
+    read_only boolean DEFAULT false NOT NULL
 );
 
 
@@ -1070,6 +1071,7 @@ ALTER TABLE ONLY public.solid_queue_scheduled_executions
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260614120000'),
 ('20260612120000'),
 ('20260603120006'),
 ('20260603120005'),

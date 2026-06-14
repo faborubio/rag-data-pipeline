@@ -40,35 +40,26 @@
 <body>
   <header>
     <h1>🚀 RAG Data Pipeline</h1>
-    <span class="tag">demo · subir PDF · chatear con streaming</span>
+    <span class="tag">demo pública · solo lectura · chat con streaming</span>
   </header>
 
   <div class="wrap">
-    <!-- LEFT: auth + upload + documents -->
+    <!-- LEFT: read-only demo info + documents -->
     <div>
+      <input id="apiKey" type="hidden" />
       <div class="panel">
-        <h2>API key</h2>
-        <div class="row">
-          <input id="apiKey" type="password" placeholder="rag_sk_..." />
-          <button onclick="saveKey()">Guardar</button>
+        <h2>Demo de solo lectura</h2>
+        <div class="note" id="demoNote">Cargando la demo…</div>
+        <div class="note" style="margin-top:10px">
+          Esta demo pública está <b>sembrada con documentos de ejemplo</b> y no
+          permite subir archivos. Para ejecutarla con tus propios PDFs, clona el
+          repo (botón ↗ arriba) y sigue el README.
         </div>
-        <div class="note">¿No tienes API key? En el servidor:<br />
-          <code>bin/rails runner 'puts Tenant.create!(name: "Demo").api_key'</code>
-        </div>
-      </div>
-
-      <div class="panel" style="margin-top:14px">
-        <h2>Subir documento (.pdf)</h2>
-        <div class="row">
-          <input id="file" type="file" accept="application/pdf" />
-        </div>
-        <button id="uploadBtn" onclick="upload()">Subir e ingestar</button>
-        <div id="uploadStatus" class="muted" style="margin-top:8px"></div>
       </div>
 
       <div class="panel" style="margin-top:14px">
         <h2>Documentos <button style="float:right;padding:4px 10px;font-size:12px" onclick="loadDocs()">↻</button></h2>
-        <div id="docs"><div class="muted">Guarda tu API key y pulsa ↻</div></div>
+        <div id="docs"><div class="muted">Cargando documentos…</div></div>
       </div>
     </div>
 
@@ -88,34 +79,22 @@
     const $ = (id) => document.getElementById(id);
     const selected = new Set();
 
-    function saveKey() {
-      localStorage.setItem("rag_api_key", $("apiKey").value.trim());
-      loadDocs();
-    }
-    function key() { return ($("apiKey").value || localStorage.getItem("rag_api_key") || "").trim(); }
+    function key() { return ($("apiKey").value || "").trim(); }
     function authHeaders(extra = {}) { return Object.assign({ "Authorization": "Bearer " + key() }, extra); }
 
-    window.onload = () => {
-      const k = localStorage.getItem("rag_api_key");
-      if (k) { $("apiKey").value = k; loadDocs(); }
-    };
-
-    async function upload() {
-      const f = $("file").files[0];
-      if (!f) return setUpload("Elige un archivo .pdf", "err");
-      if (!key()) return setUpload("Falta la API key", "err");
-      setUpload("Subiendo...", "muted");
-      const fd = new FormData(); fd.append("file", f);
+    window.onload = async () => {
       try {
-        const r = await fetch("/api/v1/documents", { method: "POST", headers: authHeaders(), body: fd });
+        const r = await fetch("/api/v1/demo");
+        if (!r.ok) throw new Error("HTTP " + r.status);
         const j = await r.json();
-        if (!r.ok) return setUpload("Error: " + (j.error || r.status), "err");
-        setUpload(`✓ Encolado (${j.status}). Procesando en segundo plano...`, "ok");
-        setTimeout(loadDocs, 1500); setTimeout(loadDocs, 4000);
-      } catch (e) { setUpload("Error de red: " + e.message, "err"); }
-    }
-    function setUpload(msg, cls) { $("uploadStatus").textContent = msg; $("uploadStatus").style.color = colorFor(cls); }
-    function colorFor(c){ return ({ok:'#22c55e',err:'#ef4444',warn:'#f59e0b'})[c] || '#94a3b8'; }
+        $("apiKey").value = j.api_key;
+        $("demoNote").innerHTML = `Conectado al tenant <b>${escapeHtml(j.tenant)}</b>. Selecciona documentos y pregunta.`;
+        loadDocs();
+      } catch (e) {
+        $("demoNote").textContent = "No se pudo iniciar la demo: " + e.message;
+        $("docs").innerHTML = `<div class="muted">Demo no disponible.</div>`;
+      }
+    };
 
     async function loadDocs() {
       if (!key()) return;
