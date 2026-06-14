@@ -37,6 +37,17 @@ class Api::V1::DocumentsTest < ActionDispatch::IntegrationTest
     File.delete(txt) if txt && File.exist?(txt)
   end
 
+  test "rejects a non-pdf disguised with a .pdf extension" do
+    fake = Rails.root.join("tmp", "fake.pdf")
+    File.write(fake, "This is plain text, not a PDF.")
+    post api_v1_documents_url,
+         params: { file: Rack::Test::UploadedFile.new(fake, "application/pdf") },
+         headers: auth_headers(@tenant)
+    assert_response :unprocessable_entity
+  ensure
+    File.delete(fake) if fake && File.exist?(fake)
+  end
+
   test "shows a document belonging to the tenant" do
     document = @tenant.documents.create!(filename: "a.pdf", status: :completed)
     get api_v1_document_url(document), headers: auth_headers(@tenant)

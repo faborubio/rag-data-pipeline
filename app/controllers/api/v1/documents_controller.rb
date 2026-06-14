@@ -38,8 +38,14 @@ module Api
 
       private
 
+      # Validate both the extension and the magic bytes, so a non-PDF renamed
+      # to .pdf is rejected up front instead of failing later in pdftotext.
       def pdf?(file)
-        File.extname(file.original_filename.to_s).downcase == ".pdf"
+        return false unless File.extname(file.original_filename.to_s).downcase == ".pdf"
+
+        header = file.read(5)
+        file.rewind
+        header == "%PDF-"
       end
 
       def store(file)

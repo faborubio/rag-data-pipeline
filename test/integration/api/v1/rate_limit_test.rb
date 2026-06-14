@@ -9,6 +9,7 @@ class Api::V1::RateLimitTest < ActionDispatch::IntegrationTest
     # small limit so the test is fast.
     @original_store = Rack::Attack.cache.store
     @original_limit = RateLimit.limit
+    @original_unauth_limit = RateLimit.unauthenticated_ip_limit
     Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
     RateLimit.limit = 3
   end
@@ -16,6 +17,7 @@ class Api::V1::RateLimitTest < ActionDispatch::IntegrationTest
   teardown do
     Rack::Attack.cache.store = @original_store
     RateLimit.limit = @original_limit
+    RateLimit.unauthenticated_ip_limit = @original_unauth_limit
   end
 
   test "throttles a tenant after exceeding its request budget" do
@@ -35,6 +37,18 @@ class Api::V1::RateLimitTest < ActionDispatch::IntegrationTest
          params: { question: "x", document_ids: [ @document.id ] },
          headers: auth_headers(@tenant), as: :json
     assert_response :success
+  end
+
+  test "throttles unauthenticated API traffic by IP" do
+    RateLimit.unauthenticated_ip_limit = 2
+    # No auth headers: these never match the per-key throttle, so the per-IP
+    # throttle must catch them (each returns 401 until throttled at 429).
+    statuses = Array.new(3) do
+      post api_v1_chats_query_url, params: { question: "x", document_ids: [ @document.id ] }, as: :json
+      response.status
+    end
+
+    assert_equal [ 401, 401, 429 ], statuses
   end
 
   test "budgets are independent per tenant" do

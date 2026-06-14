@@ -77,6 +77,24 @@ archivo **in-place** en la VPS (`nano`/`vim` sin swap atómico), que conserva el
 - Security headers (HSTS, `X-Frame-Options`, `X-Content-Type-Options`,
   `Referrer-Policy`) los añade Caddy — Rails no los gestiona.
 
+## ⚠️ Acople: la ingestión usa el disco local del contenedor
+
+Al subir un PDF, `DocumentsController` lo guarda en `tmp/uploads` y encola
+`DocumentIngestionJob` pasándole **la ruta del archivo**. Esto funciona porque en
+producción `SOLID_QUEUE_IN_PUMA=1`: el worker corre **embebido en el mismo proceso
+Puma / mismo contenedor** que la API, así que comparten ese disco.
+
+**Antes de escalar el worker a un proceso/contenedor aparte** (p. ej. `bin/jobs`
+en otro servicio de Compose, o réplicas), hay que romper este acople — si no, el
+job no encontrará el archivo:
+
+- Mover los uploads a almacenamiento compartido (Active Storage con un bucket
+  S3/GCS, o un volumen montado en ambos contenedores), **o**
+- Pasar los bytes del PDF al job (no la ruta), aceptando el coste de serializarlos
+  en la cola.
+
+Mientras el worker siga embebido en Puma, no hay nada que hacer.
+
 ## Kamal (alternativa, no activa)
 
 Existe [`config/deploy.yml`](config/deploy.yml) preparado para Kamal con

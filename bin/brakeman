@@ -2,6 +2,9 @@
 require "rubygems"
 require "bundler/setup"
 
-ARGV.unshift("--ensure-latest")
+# NOTE: the Rails-generated binstub passes --ensure-latest here, which fails the
+# scan whenever a newer Brakeman ships (a failure decoupled from your code).
+# We rely on Dependabot to keep the gem current instead, so CI stays green on
+# external release timing. See TROUBLESHOOTING.md.
 
 load Gem.bin_path("brakeman", "brakeman")

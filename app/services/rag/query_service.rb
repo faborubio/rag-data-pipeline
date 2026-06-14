@@ -1,9 +1,10 @@
 require "digest"
 
 module Rag
-  # Read Path: embed the question, cosine-search the tenant's allowed chunks,
-  # build a grounded prompt and generate the answer. Identical queries are
-  # served from Solid Cache to cut token costs (spec: Cache Semantica).
+  # Read Path: embed the question, hybrid-search the tenant's allowed chunks,
+  # build a grounded prompt and generate the answer. Identical queries (same
+  # question + document set) are served from Solid Cache to cut token costs —
+  # an exact-match cache; a true embedding-similarity cache is future work.
   class QueryService
     TOP_K = 5
     # Candidates pulled from each retriever before fusion. Wider than TOP_K so a

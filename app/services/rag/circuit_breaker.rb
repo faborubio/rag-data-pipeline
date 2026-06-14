@@ -2,6 +2,11 @@ module Rag
   # Minimal, thread-safe, process-local circuit breaker.
   # Protects the web/worker process from cascading failures when an external
   # AI API is down or rate-limiting (spec: Resiliencia Backend).
+  #
+  # States: closed -> (failures reach threshold) -> open -> (reset_timeout
+  # elapsed) -> half-open -> (trial succeeds) -> closed, or (trial fails) -> open.
+  # In half-open only ONE trial request is admitted; concurrent callers are
+  # rejected so a recovering dependency is not stampeded.
   class CircuitBreaker
     class OpenCircuitError < StandardError; end
 
@@ -10,15 +15,15 @@ module Rag
       @failure_threshold = failure_threshold
       @reset_timeout = reset_timeout
       @mutex = Mutex.new
+      @state = :closed
       @failures = 0
       @opened_at = nil
     end
 
     def run
-      raise OpenCircuitError, "#{@name} circuit is open" if open?
-
+      admit!
       result = yield
-      reset!
+      record_success
       result
     rescue OpenCircuitError
       raise
@@ -28,33 +33,45 @@ module Rag
     end
 
     def open?
-      @mutex.synchronize do
-        return false if @opened_at.nil?
-
-        if Time.now - @opened_at >= @reset_timeout
-          # half-open: clear state and allow a trial request through
-          @failures = 0
-          @opened_at = nil
-          false
-        else
-          true
-        end
-      end
+      @mutex.synchronize { @state == :open && !reset_due? }
     end
 
     private
 
-    def record_failure
+    # Decides whether this call may proceed, transitioning open -> half-open for
+    # the single trial. Raises OpenCircuitError otherwise.
+    def admit!
       @mutex.synchronize do
-        @failures += 1
-        @opened_at = Time.now if @failures >= @failure_threshold
+        case @state
+        when :open
+          raise OpenCircuitError, "#{@name} circuit is open" unless reset_due?
+
+          @state = :half_open # consume the lone trial slot
+        when :half_open
+          raise OpenCircuitError, "#{@name} circuit is open"
+        end
       end
     end
 
-    def reset!
+    def reset_due?
+      @opened_at && Time.now - @opened_at >= @reset_timeout
+    end
+
+    def record_success
       @mutex.synchronize do
+        @state = :closed
         @failures = 0
         @opened_at = nil
+      end
+    end
+
+    def record_failure
+      @mutex.synchronize do
+        @failures += 1
+        if @state == :half_open || @failures >= @failure_threshold
+          @state = :open
+          @opened_at = Time.now
+        end
       end
     end
   end

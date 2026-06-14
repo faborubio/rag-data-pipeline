@@ -33,12 +33,24 @@ module Rag
         end
         pending.each_with_index { |chunk, i| chunk[:embedding] = embeddings[i] }
 
-        DocumentChunk.transaction do
-          document.document_chunks.delete_all
-          pending.each { |attrs| document.document_chunks.create!(attrs) }
+        # Bulk insert in a single statement instead of one INSERT per chunk: a
+        # large document (100+ chunks) collapses from 100+ round-trips to one.
+        # insert_all! skips validations/callbacks, so set timestamps explicitly.
+        now = Time.current
+        rows = pending.map do |chunk|
+          { document_id: document.id, content: chunk[:content], page_number: chunk[:page_number],
+            embedding: chunk[:embedding], created_at: now, updated_at: now }
         end
 
-        pending.size
+        # Delete via the model (not the association) so we don't load and cache
+        # an empty target: insert_all! writes straight to SQL, which would leave
+        # a stale in-memory association on the passed-in document.
+        DocumentChunk.transaction do
+          DocumentChunk.where(document_id: document.id).delete_all
+          DocumentChunk.insert_all!(rows)
+        end
+
+        rows.size
       end
     end
   end

@@ -1,9 +1,12 @@
 class DocumentIngestionJob < ApplicationJob
+  MAX_ATTEMPTS = 5
+
   queue_as :ingestion
 
-  # Resilience (spec): automatic retries with exponential backoff. After the
-  # final attempt the document is marked failed via the rescue below.
-  retry_on StandardError, wait: :polynomially_longer, attempts: 5
+  # Resilience (spec): automatic retries with exponential backoff. The document
+  # is only marked failed once the LAST attempt fails (see the rescue); while
+  # retries remain it stays `processing` so status never flaps to failed.
+  retry_on StandardError, wait: :polynomially_longer, attempts: MAX_ATTEMPTS
 
   def perform(document_id, file_path)
     document = Document.find(document_id)
@@ -19,9 +22,14 @@ class DocumentIngestionJob < ApplicationJob
     # Document was deleted; nothing to retry.
     Rails.logger.warn("[Ingestion] #{e.message}; skipping")
   rescue StandardError => e
-    Document.where(id: document_id).update_all(status: Document.statuses[:failed])
-    AppMetrics::INGESTIONS.increment(labels: { status: "failed" })
-    Rails.logger.error("[Ingestion] document=#{document_id} failed: #{e.class}: #{e.message}")
+    if executions >= MAX_ATTEMPTS
+      # Final attempt: give up and record the failure terminally.
+      Document.where(id: document_id).update_all(status: Document.statuses[:failed])
+      AppMetrics::INGESTIONS.increment(labels: { status: "failed" })
+      Rails.logger.error("[Ingestion] document=#{document_id} failed after #{executions} attempts: #{e.class}: #{e.message}")
+    else
+      Rails.logger.warn("[Ingestion] document=#{document_id} attempt #{executions} failed (#{e.class}); will retry")
+    end
     raise e
   end
 
