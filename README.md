@@ -311,7 +311,7 @@ El golden set incluye preguntas *difíciles* a propósito (vocabulario divergent
 
 ## 🚢 Despliegue
 
-Producción corre en una VPS (Google Cloud) con **Docker Compose** ([`compose.production.yml`](compose.production.yml)): Rails + pgvector + **Caddy** como reverse proxy con HTTPS automático (Let's Encrypt) y security headers, sirviendo la [demo en vivo](https://fabianragpipeline.duckdns.org/demo.html). El procedimiento paso a paso, la verificación post-deploy y los *gotchas* conocidos (p. ej. por qué un `caddy reload` no basta tras sincronizar el `Caddyfile`) están documentados en **[DEPLOY.md](DEPLOY.md)**.
+Producción corre en una VPS (Google Cloud) con **Docker Compose** ([`compose.production.yml`](compose.production.yml)): Rails + pgvector + **Caddy** como reverse proxy con HTTPS automático (Let's Encrypt) y security headers, sirviendo la [demo en vivo](https://fabianragpipeline.duckdns.org/demo.html). El procedimiento paso a paso, la verificación post-deploy y los *gotchas* conocidos (p. ej. por qué un `caddy reload` no basta tras sincronizar el `Caddyfile`) están documentados en **[DEPLOY.md](DEPLOY.md)**. Los incidentes recurrentes y su solución (fallos de CI por versiones nuevas o CVEs, full-text vacío, etc.) viven en **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
 
 También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/deploy.yml)) como alternativa, aunque el despliegue activo es el de Compose.
 
