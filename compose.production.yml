@@ -26,6 +26,9 @@ services:
       RAILS_SERVE_STATIC_FILES: "1"
       SOLID_QUEUE_IN_PUMA: "1"
       WEB_CONCURRENCY: "1"
+      # Headroom so SSE streams (each holds a thread for the response) don't
+      # starve health checks / normal requests. The DB pool tracks this value.
+      RAILS_MAX_THREADS: "6"
       # Real embeddings via Gemini free tier (optional; falls back if unset).
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       # Use the multilingual cross-encoder reranker (model baked into the image).

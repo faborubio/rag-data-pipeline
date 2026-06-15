@@ -4,6 +4,9 @@ module Rag
   # Write Path orchestration: extract -> chunk -> embed (batched) -> persist.
   # Page numbers are preserved so the Read Path can cite exact sources.
   class Ingestor
+    # Rows per INSERT statement on persist; caps statement size for big documents.
+    INSERT_BATCH_SIZE = 500
+
     def initialize(extractor: PdfTextExtractor.new,
                    chunker: SemanticChunker.new,
                    embedder: Embedder.new)
@@ -53,7 +56,9 @@ module Rag
         # a stale in-memory association on the passed-in document.
         DocumentChunk.transaction do
           DocumentChunk.where(document_id: document.id).delete_all
-          DocumentChunk.insert_all!(rows)
+          # Insert in slices so a large document (thousands of chunks) doesn't
+          # build one enormous INSERT statement; still one atomic transaction.
+          rows.each_slice(INSERT_BATCH_SIZE) { |slice| DocumentChunk.insert_all!(slice) }
         end
 
         rows.size

@@ -198,15 +198,23 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
   cada hora (`RATE_LIMIT_ATTEMPTS=6`) dejando el doc `processing` y reanudando desde la
   caché del embedder. Auditoría también confirmó OK: OTel no floodea prod (exporter
   gateado por entorno), auth en tiempo constante (blind index), retrieval scopeado por
-  tenant. Quedan abiertos (no resueltos hoy): Puma 3 threads + streaming (inanición),
-  `insert_all!` sin lotear, y caché embeddings vs respuestas en los mismos 256MB.
+  tenant.
+
+- **Hardening escalabilidad (2ª tanda)** — (1) **bug latente del pool de DB**: `database.yml`
+  usaba `max_connections:` (clave que AR **ignora**) en vez de `pool:`, así que el pool NO
+  escalaba con `RAILS_MAX_THREADS` y estaba en el default; corregido a `pool:` (verificado:
+  ahora `pool.size == RAILS_MAX_THREADS`). (2) **Inanición de threads por streaming**:
+  `RAILS_MAX_THREADS` 3→6 (el VPS es 1 CPU, así que más threads en un proceso resuelve el
+  cuello I/O-bound del SSE mejor que 2 workers; Solid Queue corre 1 sola vez vía fork en el
+  master, sin duplicar jobs). (3) **`insert_all!`** ahora en lotes de 500 (statement acotado,
+  misma transacción atómica). (4) **TTL caché embeddings** 30d→7d para no desalojar la caché
+  de respuestas en los 256MB compartidos.
 
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
 
-0. **Del audit, sin resolver:** Puma 3 threads vs streaming (`ActionController::Live`
-   ocupa un thread por stream → 3 streams bloquean todo); `insert_all!` en un statement
-   gigante (lotear a ~500); caché de embeddings (TTL 30d) compartiendo 256MB con la de
-   respuestas (bajar TTL o separar). `documents_version` sin scope de tenant (cosmético).
+0. **Del audit, menor/cosmético:** `WEB_CONCURRENCY=1` deja Puma en cluster-mode con 1 worker
+   (desperdicio; pasar a single-mode o 2 workers); `documents_version` sin scope de tenant
+   (no hay fuga, solo prolijidad).
 
 
 1. **Generación real con LLM** — el fallback ya es extractivo-enfocado; el salto a

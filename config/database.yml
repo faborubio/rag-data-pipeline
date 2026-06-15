@@ -17,7 +17,10 @@ default: &default
   encoding: unicode
   # For details on connection pooling, see Rails configuration guide
   # https://guides.rubyonrails.org/configuring.html#database-pooling
-  max_connections: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  # NOTE: the ActiveRecord key is `pool`, not `max_connections` (which AR
+  # silently ignores) — keep it at least as large as RAILS_MAX_THREADS so
+  # request threads never starve waiting for a DB connection.
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
 
 
 development:

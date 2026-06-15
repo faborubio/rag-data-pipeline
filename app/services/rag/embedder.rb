@@ -24,9 +24,10 @@ module Rag
     RATE_LIMIT_BASE_DELAY = 2.0
     RATE_LIMIT_MAX_DELAY = 32.0
     RATE_LIMIT_JITTER = 1.0
-    # Persistent memo for computed embeddings (Solid Cache). Long-lived so a
-    # paced bulk embed that spans several days can resume against it.
-    EMBEDDING_CACHE_TTL = 30.days
+    # Persistent memo for computed embeddings (Solid Cache). Lives long enough to
+    # resume a multi-day paced bulk embed, but bounded so these large vectors
+    # don't crowd out the latency-critical query-answer cache in the shared store.
+    EMBEDDING_CACHE_TTL = 7.days
     GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/" \
                       "#{Rag::GEMINI_EMBEDDING_MODEL}:batchEmbedContents".freeze
 
