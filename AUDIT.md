@@ -210,6 +210,17 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
   misma transacción atómica). (4) **TTL caché embeddings** 30d→7d para no desalojar la caché
   de respuestas en los 256MB compartidos.
 
+- **Respuestas con umbral de confianza (abstención)** — un RAG que siempre responde
+  **inventa** ante preguntas fuera del corpus (medido: un manual de conducir "respondía"
+  la capital de Francia, cómo hacer una torta, la fotosíntesis). Ahora sabe cuándo NO
+  responder: los rerankers devuelven `[chunk, score]` y exponen `confident?(top_score)`.
+  La señal **léxica no sirve** (fuera de tema puntuaba igual que dentro por stopwords);
+  el **cross-encoder neural sí** (medido: dentro ≥ ~0.20, fuera ≤ ~0.15 — umbral **0.18**,
+  `RERANK_MIN_SCORE`). `QueryService` abstiene (devuelve "No encontré información…", sin
+  fuentes) en ruta sync y streaming. Validado end-to-end y **en producción** (Gemini +
+  neural): dentro responde, fuera abstiene. *(Idea #1 de 4; faltan #2 grounding eval,
+  #3 UI de chat, #4 analítica de consultas.)*
+
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
 
 0. **Del audit, menor/cosmético:** `WEB_CONCURRENCY=1` deja Puma en cluster-mode con 1 worker

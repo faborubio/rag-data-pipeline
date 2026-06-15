@@ -344,6 +344,7 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Embeddings reales con **Google Gemini** (capa gratuita, multi-proveedor con fallback)
 - [x] Calidad máxima medida (Gemini + jina multilingüe): **recall/MRR/keywords = 1.0**
 - [x] Respuestas extractivas enfocadas (frase relevante + multi-fuente, sin LLM)
+- [x] **Abstención por confianza** — si el score top del cross-encoder cae bajo el umbral (`RERANK_MIN_SCORE`, def 0.18), responde "No encontré información sobre eso" en vez de inventar (sabe cuándo *no* responder)
 - [x] **Idempotencia de embeddings** — reuso por `content_hash` + provider; re-ingestar contenido sin cambios no re-embebe (ahorra cuota Gemini)
 - [x] **Chunking estructural** — segmenta por párrafos (con reflow) y secciones (encabezados); no mezcla secciones y solo parte por caracteres lo que excede 500. Evals sin cambios en el corpus limpio; gana robustez con PDFs reales desordenados
 
