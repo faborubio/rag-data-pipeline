@@ -19,6 +19,10 @@ module Rag
     # 12h favours hit rate for rarely-changing manuals; entries left behind by a
     # re-ingest age out on their own.
     CACHE_TTL = 12.hours
+    # Folded into the cache key so a change to how answers are built (format,
+    # citations, prompt) invalidates old entries instead of serving stale ones.
+    # Bump this whenever the answer shape changes.
+    CACHE_VERSION = "v2-citations".freeze
     # Returned instead of a generated answer when retrieval isn't confident the
     # corpus actually covers the question — abstaining beats inventing.
     NO_ANSWER = "No encontré información sobre eso en los documentos consultados.".freeze
@@ -230,7 +234,7 @@ module Rag
     def cache_key(tenant, question, document_ids)
       ids = Array(document_ids).map(&:to_s).sort
       digest = Digest::SHA256.hexdigest(
-        [ normalize_question(question), ids, documents_version(ids) ].to_json
+        [ CACHE_VERSION, normalize_question(question), ids, documents_version(ids) ].to_json
       )
       "rag:query:#{tenant.id}:#{digest}"
     end
