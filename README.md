@@ -331,7 +331,7 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Pipeline de ingestión asíncrono
 - [x] Endpoint de consulta RAG (Read Path)
 - [x] Autenticación por tenant
-- [x] Suite de tests automatizados (Minitest, 89 tests)
+- [x] Suite de tests automatizados (Minitest, 92 tests)
 - [x] Rate limiting por tenant (rack-attack)
 - [x] Streaming de respuestas (SSE)
 - [x] Worker de Solid Queue (proceso `bin/jobs` / embebido en Puma)
@@ -343,6 +343,15 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Reranking de dos etapas (léxico por defecto + cross-encoder ONNX **multilingüe** opt-in)
 - [x] Embeddings reales con **Google Gemini** (capa gratuita, multi-proveedor con fallback)
 - [x] Calidad máxima medida (Gemini + jina multilingüe): **recall/MRR/keywords = 1.0**
+- [x] Respuestas extractivas enfocadas (frase relevante + multi-fuente, sin LLM)
+
+### Próximos pasos (opcionales, ordenados por valor)
+
+- [ ] **Idempotencia de embeddings** — hash de contenido para no re-embeber chunks sin cambios → ahorra el recurso más caro (cuota Gemini). *(rápido, gratis)*
+- [ ] **Chunking estructural** — cortar por párrafos/secciones reales en vez de por nº de caracteres; rinde con PDFs reales grandes/desordenados (el corpus de la demo ya es limpio). Medir con los evals. *(gratis)*
+- [ ] **Generación real con LLM** — el salto de mayor impacto visible; hoy el fallback es extractivo. Requiere proveedor de pago (Gemini con billing, o Claude Haiku ~$0.0025/respuesta) tras el patrón live/fallback ya existente.
+
+> **Para retomar:** el estado, las decisiones y los hallazgos (incluido *por qué* el reranker inglés se descartó por el multilingüe, y los límites de la capa gratuita de Gemini) están en [AUDIT.md](AUDIT.md); el procedimiento de deploy en [DEPLOY.md](DEPLOY.md); los incidentes y sus fixes en [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ## 📄 Licencia
 

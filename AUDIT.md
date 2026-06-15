@@ -125,12 +125,24 @@ net-negativo. `NeuralReranker::MODEL` es ahora jina multilingüe; el reranker si
 **opt-in** (`RERANKER=neural`) por su coste (267MB + ~1-2s/consulta en 1 CPU), con
 el léxico como default rápido (que ya logra recall 1.0).
 
-## Pendiente / próximas auditorías
+## Estado actual del pipeline (2026-06-14)
 
-- **Respuestas reales del LLM:** hoy en fallback extractivo (Gemini tiene la
-  generación bloqueada en capa gratuita; OpenAI/Claude requieren billing). Evaluar
-  cuando haya un proveedor de generación gratuito o presupuesto.
-- **Caché semántica real** (similitud de embedding sobre umbral) — feature, no fix.
-- **Búsqueda híbrida en paralelo:** hoy las ramas vector y full-text corren en
-  secuencia; podrían concurrir, pero con el pool de conexiones de AR no compensa a
-  esta escala.
+Producción (demo pública) corre: **embeddings Gemini** (free tier) → búsqueda
+**híbrida** (vector + full-text, RRF) → **reranker neural multilingüe jina**
+(`RERANKER=neural`, modelo bakeado en la imagen) → **respuesta extractiva enfocada**
+(frase relevante + multi-fuente, sin LLM). Evals con este stack: **recall/MRR/
+keywords = 1.0**. Demo solo-lectura, 1 documento (`manual-seguridad-rag.pdf`).
+Latencia ~1.4s en caliente. Hallazgo operativo: el **free tier de Gemini limita la
+indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
+
+## Pendiente / próximas auditorías (trabajo opcional, por valor)
+
+1. **Idempotencia de embeddings** *(rápido, gratis)* — hash de contenido para no
+   re-embeber chunks sin cambios; ahorra el recurso más caro (cuota Gemini).
+2. **Chunking estructural** *(gratis)* — cortar por párrafos/secciones reales; rinde
+   con PDFs reales grandes (el corpus actual ya es limpio). Medir con evals.
+3. **Generación real con LLM** — el fallback ya es extractivo-enfocado; el salto a
+   respuestas generadas requiere proveedor de pago (Gemini con billing / Claude
+   Haiku) tras el patrón live/fallback existente.
+4. **Resiliencia de cuota Gemini** — retry con backoff en el embedder ante 429.
+5. **Caché semántica real** y **búsqueda híbrida en paralelo** — features, no fixes.
