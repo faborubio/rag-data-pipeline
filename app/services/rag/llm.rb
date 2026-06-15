@@ -82,11 +82,42 @@ module Rag
       "Contexto:\n#{context_block}\n\nPregunta: #{question}"
     end
 
+    # Deterministic extractive answer (no LLM): instead of dumping the whole top
+    # chunk, surface the sentence(s) most relevant to the question — dropping
+    # heading/boilerplate noise — and draw on up to two sources when both cover
+    # query terms. Falls back to the full top chunk for purely semantic matches
+    # (where the question's words never appear in the retrieved text).
     def fallback_answer(question, contexts)
-      return "No se encontro contexto relevante para responder la pregunta." if contexts.empty?
+      return "No se encontró contexto relevante para responder la pregunta." if contexts.empty?
+
+      query = tokenize(question).to_set
+      excerpts = contexts.first(2).filter_map do |ctx|
+        sentence = best_overlapping_sentence(ctx[:content], query)
+        "(pág. #{ctx[:page_number]}) #{sentence}" if sentence
+      end
+
+      return "Según la documentación: #{excerpts.join(' ')}" if excerpts.any?
 
       top = contexts.first
-      "Segun la documentacion (pag. #{top[:page_number]}): #{top[:content]}"
+      "Según la documentación (pág. #{top[:page_number]}): #{top[:content].strip}"
+    end
+
+    # The chunk's sentence with the most query-term overlap; nil if none overlap.
+    # Ties (e.g. a short heading vs the full informative sentence that share one
+    # query word) break toward the longer, more informative sentence.
+    def best_overlapping_sentence(content, query)
+      sentence, score = split_sentences(content)
+                        .map { |s| [ s, (tokenize(s).to_set & query).size ] }
+                        .max_by { |(s, overlap)| [ overlap, s.length ] }
+      score.to_i.zero? ? nil : sentence.strip
+    end
+
+    def split_sentences(text)
+      text.to_s.strip.split(/(?<=[.!?])\s+/).map(&:strip).reject(&:empty?)
+    end
+
+    def tokenize(text)
+      text.to_s.unicode_normalize(:nfkd).gsub(/\p{Mn}/, "").downcase.scan(/[a-z0-9]+/)
     end
   end
 end
