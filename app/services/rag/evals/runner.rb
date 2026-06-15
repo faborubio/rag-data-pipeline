@@ -13,16 +13,17 @@ module Rag
       # semantic embeddings). Thresholds sit ~6-12 points below to lock in the
       # hybrid gain: a regression to vector-only (recall 0.917 / MRR 0.826 /
       # keywords 0.750) trips the keyword gate.
-      THRESHOLDS = { recall_at_k: 0.90, mrr: 0.85, keyword_presence: 0.80 }.freeze
+      THRESHOLDS = { recall_at_k: 0.90, mrr: 0.85, keyword_presence: 0.80, grounding: 0.90 }.freeze
 
       Row = Struct.new(:id, :question, :document, :rank, :recall, :reciprocal_rank,
-                       :keyword_presence, :answer, keyword_init: true)
+                       :keyword_presence, :grounding, :answer, keyword_init: true)
 
-      Report = Struct.new(:rows, :recall_at_k, :mrr, :keyword_presence, :k, keyword_init: true) do
+      Report = Struct.new(:rows, :recall_at_k, :mrr, :keyword_presence, :grounding, :k, keyword_init: true) do
         def pass?
           recall_at_k >= THRESHOLDS[:recall_at_k] &&
             mrr >= THRESHOLDS[:mrr] &&
-            keyword_presence >= THRESHOLDS[:keyword_presence]
+            keyword_presence >= THRESHOLDS[:keyword_presence] &&
+            grounding >= THRESHOLDS[:grounding]
         end
 
         def failures
@@ -67,8 +68,11 @@ module Rag
 
       def evaluate(tenant, documents, question)
         document = documents.fetch(question.document)
-        result = @query_service.call(tenant: tenant, question: question.question,
-                                     document_ids: documents.values.map(&:id))
+        document_ids = documents.values.map(&:id)
+        result = @query_service.call(tenant: tenant, question: question.question, document_ids: document_ids)
+        # Full contexts (not the truncated source snippets) for the grounding check.
+        contexts = @query_service.retrieve(tenant: tenant, question: question.question,
+                                           document_ids: document_ids)[:contexts]
         target = { document_id: document.id, expected_pages: question.expected_pages }
 
         Row.new(
@@ -79,6 +83,7 @@ module Rag
           recall: Metrics.recall_at_k(result.sources, k: @k, **target),
           reciprocal_rank: Metrics.reciprocal_rank(result.sources, **target),
           keyword_presence: Metrics.keyword_presence(result.answer, question.expected_keywords),
+          grounding: Metrics.grounding(result.answer, contexts),
           answer: result.answer
         )
       end
@@ -89,6 +94,7 @@ module Rag
           recall_at_k: average(rows.map(&:recall)),
           mrr: average(rows.map(&:reciprocal_rank)),
           keyword_presence: average(rows.map(&:keyword_presence)),
+          grounding: average(rows.map(&:grounding)),
           k: @k
         )
       end

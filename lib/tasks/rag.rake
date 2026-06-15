@@ -64,10 +64,11 @@ namespace :rag do
                   row.question.truncate(45))
     end
     puts "-" * 78
-    puts format("recall@%d: %.3f (min %.2f) | MRR: %.3f (min %.2f) | keywords: %.3f (min %.2f)",
+    puts format("recall@%d: %.3f (min %.2f) | MRR: %.3f (min %.2f) | keywords: %.3f (min %.2f) | grounding: %.3f (min %.2f)",
                 report.k, report.recall_at_k, thresholds[:recall_at_k],
                 report.mrr, thresholds[:mrr],
-                report.keyword_presence, thresholds[:keyword_presence])
+                report.keyword_presence, thresholds[:keyword_presence],
+                report.grounding, thresholds[:grounding])
 
     if report.pass?
       puts "PASS"

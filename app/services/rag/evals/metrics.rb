@@ -26,6 +26,27 @@ module Rag
         rank ? 1.0 / rank : 0.0
       end
 
+      # Answer prefix/citation tokens not drawn from the corpus, so they
+      # shouldn't count against grounding ("Según la documentación (pág. 3): ...").
+      ANSWER_BOILERPLATE = %w[segun la documentacion pag pagina].freeze
+
+      # Faithfulness guardrail: fraction of the answer's content tokens that
+      # actually appear in the retrieved context. ~1.0 for extractive answers;
+      # catches a future generative LLM inventing claims absent from the sources.
+      def grounding(answer, contexts)
+        answer_tokens = content_tokens(answer)
+        return 1.0 if answer_tokens.empty?
+
+        context_tokens = contexts.flat_map { |c| content_tokens(c[:content]) }.to_set
+        answer_tokens.count { |token| context_tokens.include?(token) }.fdiv(answer_tokens.size)
+      end
+
+      # Substantive tokens only: drop boilerplate and 1-char noise (stray page
+      # digits, single letters) so grounding reflects real content.
+      def content_tokens(text)
+        normalize(text).scan(/[a-z0-9]+/).reject { |t| t.length < 2 || ANSWER_BOILERPLATE.include?(t) }
+      end
+
       # Fraction of expected keywords present in the answer, compared after
       # normalization so accents/case never cause false misses.
       def keyword_presence(answer, keywords)
