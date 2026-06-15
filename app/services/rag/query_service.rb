@@ -52,6 +52,7 @@ module Rag
           "rag.sources.count" => payload[:sources].size,
           "rag.latency_ms" => latency_ms
         )
+        log_query(tenant, question, payload, cache_hit, latency_ms)
         Result.new(answer: payload[:answer], sources: payload[:sources], latency_ms: latency_ms)
       end
     end
@@ -103,6 +104,7 @@ module Rag
           "rag.sources.count" => payload[:sources].size,
           "rag.latency_ms" => latency_ms
         )
+        log_query(tenant, question, payload, cache_hit, latency_ms)
         payload[:sources]
       end
     end
@@ -176,6 +178,22 @@ module Rag
         @llm.answer(question: question, contexts: retrieval[:contexts])
       end
       { answer: answer, sources: retrieval[:sources] }
+    end
+
+    # Append-only analytics row per query. Best-effort: analytics must never break
+    # a query, so any failure is swallowed.
+    def log_query(tenant, question, payload, cache_hit, latency_ms)
+      QueryLog.create!(
+        tenant: tenant,
+        question: question.to_s,
+        answered: payload[:answer] != NO_ANSWER,
+        rerank_score: Current.rag[:rerank_score],
+        cache_hit: cache_hit,
+        sources_count: payload[:sources].size,
+        latency_ms: latency_ms
+      )
+    rescue StandardError => e
+      Rails.logger.warn("[Analytics] failed to log query: #{e.class}: #{e.message}")
     end
 
     def record_metrics(latency_ms, cache_hit)

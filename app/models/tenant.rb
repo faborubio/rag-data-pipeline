@@ -1,5 +1,6 @@
 class Tenant < ApplicationRecord
   has_many :documents, dependent: :destroy
+  has_many :query_logs, dependent: :delete_all
 
   # Secret API key, encrypted at rest (Lockbox -> api_key_ciphertext) and
   # searchable via a blind index (BlindIndex -> api_key_bidx) for authentication.

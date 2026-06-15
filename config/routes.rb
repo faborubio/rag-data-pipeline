@@ -16,6 +16,8 @@ Rails.application.routes.draw do
       post "chats/query", to: "chats#query", as: :chats_query
       # Public demo bootstrap: returns the read-only demo tenant's API key.
       get "demo", to: "demo#show"
+      # Per-tenant query analytics (volume, answer rate, content gaps).
+      get "analytics", to: "analytics#show"
     end
   end
 

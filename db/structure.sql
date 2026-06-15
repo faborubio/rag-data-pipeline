@@ -111,6 +111,23 @@ CREATE TABLE public.documents (
 
 
 --
+-- Name: query_logs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.query_logs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    question text NOT NULL,
+    answered boolean DEFAULT true NOT NULL,
+    rerank_score double precision,
+    cache_hit boolean DEFAULT false NOT NULL,
+    sources_count integer DEFAULT 0 NOT NULL,
+    latency_ms integer,
+    created_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -646,6 +663,14 @@ ALTER TABLE ONLY public.documents
 
 
 --
+-- Name: query_logs query_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.query_logs
+    ADD CONSTRAINT query_logs_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -790,6 +815,13 @@ CREATE INDEX index_document_chunks_on_hash_and_provider ON public.document_chunk
 --
 
 CREATE INDEX index_documents_on_tenant_id ON public.documents USING btree (tenant_id);
+
+
+--
+-- Name: index_query_logs_on_tenant_id_and_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_query_logs_on_tenant_id_and_created_at ON public.query_logs USING btree (tenant_id, created_at);
 
 
 --
@@ -1010,6 +1042,14 @@ CREATE UNIQUE INDEX index_tenants_on_api_key_bidx ON public.tenants USING btree 
 
 
 --
+-- Name: query_logs fk_rails_03d6028f4e; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.query_logs
+    ADD CONSTRAINT fk_rails_03d6028f4e FOREIGN KEY (tenant_id) REFERENCES public.tenants(id);
+
+
+--
 -- Name: solid_queue_recurring_executions fk_rails_318a5533ed; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1080,6 +1120,7 @@ ALTER TABLE ONLY public.solid_queue_scheduled_executions
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260615130000'),
 ('20260615120000'),
 ('20260614120000'),
 ('20260612120000'),
