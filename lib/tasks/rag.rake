@@ -64,11 +64,26 @@ namespace :rag do
                   row.question.truncate(45))
     end
     puts "-" * 78
+
+    unless report.negative_rows.empty?
+      puts
+      puts "Abstention — preguntas FUERA del corpus (deben abstenerse):"
+      puts format("%-8s %-10s %s", "ID", "ABSTAINED", "QUESTION")
+      puts "-" * 78
+      report.negative_rows.each do |row|
+        puts format("%-8s %-10s %s", row.id, row.abstained ? "yes" : "NO", row.question.truncate(50))
+      end
+      puts "-" * 78
+    end
+
+    abstention_note = report.abstention_gated ? format("%.3f (min %.2f)", report.abstention, thresholds[:abstention]) : "n/a (reranker lexico no abstiene)"
     puts format("recall@%d: %.3f (min %.2f) | MRR: %.3f (min %.2f) | keywords: %.3f (min %.2f) | grounding: %.3f (min %.2f)",
                 report.k, report.recall_at_k, thresholds[:recall_at_k],
                 report.mrr, thresholds[:mrr],
                 report.keyword_presence, thresholds[:keyword_presence],
                 report.grounding, thresholds[:grounding])
+    puts format("false_abstention: %.3f (max %.2f) | abstention: %s",
+                report.false_abstention, thresholds[:false_abstention], abstention_note)
 
     if report.pass?
       puts "PASS"

@@ -32,4 +32,14 @@ class RagQualityTest < ActiveSupport::TestCase
     assert_operator report.keyword_presence, :>=, THRESHOLDS[:keyword_presence],
       "Keyword presence regressed. Failing: #{report.failures.select { |r| r.keyword_presence < 1.0 }.map(&:id).join(', ')}"
   end
+
+  # In-corpus questions must always be answered — never wrongly abstained. This is
+  # tier-independent (the lexical fallback can't abstain, so it passes trivially;
+  # the neural tier catches a RERANK_MIN_SCORE set so high it refuses valid hits).
+  # The true-abstention floor on off-topic negatives needs the neural reranker, so
+  # it is gated in `rag:evals` (RERANKER=neural), not this deterministic CI gate.
+  test "never abstains on an in-corpus question" do
+    assert_operator report.false_abstention, :<=, THRESHOLDS[:false_abstention],
+      "Wrongly abstained on: #{report.rows.select(&:abstained).map(&:id).join(', ')}"
+  end
 end

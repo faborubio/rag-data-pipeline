@@ -29,6 +29,11 @@ module Rag
 
     Result = Struct.new(:answer, :sources, :latency_ms, :query_id, keyword_init: true)
 
+    # Exposed so the evals harness can ask whether the active reranker can gate
+    # answering at all (the lexical one never abstains) and decide if the
+    # abstention metric is enforceable for this run.
+    attr_reader :reranker
+
     def initialize(embedder: Embedder.new, llm: Llm.new, reranker: Rag.reranker)
       @embedder = embedder
       @llm = llm

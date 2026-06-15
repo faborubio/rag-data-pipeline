@@ -346,6 +346,7 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Respuestas extractivas enfocadas (frase relevante + multi-fuente, sin LLM)
 - [x] **Abstención por confianza** — si el score top del cross-encoder cae bajo el umbral (`RERANK_MIN_SCORE`, def 0.18), responde "No encontré información sobre eso" en vez de inventar (sabe cuándo *no* responder)
 - [x] **Eval de grounding/fidelidad** — métrica en el harness (tokens de la respuesta presentes en el contexto) como gate de CI (min 0.90), para cazar alucinaciones
+- [x] **Gate de abstención medido** — golden set negativo (preguntas fuera del corpus) + métricas `false_abstention` (positivas nunca se abstienen, gate de CI) y `abstention` (negativas se abstienen, gate del tier neural `RERANKER=neural`), para que una regresión del umbral 0.18 no pase inadvertida
 - [x] **Analítica por tenant** — `GET /api/v1/analytics`: volumen, tasa de respuesta, cache-hit, preguntas top y vacíos de contenido (abstenciones)
 - [x] **UI de chat enriquecida** — streaming, fuentes, pills de latencia/caché, abstención estilizada, chips sugeridos y panel de analítica en vivo
 - [x] **Citas inline `[n]`** — cada afirmación de la respuesta referencia su fuente numerada (trazabilidad)

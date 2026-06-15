@@ -13,17 +13,30 @@ module Rag
       # semantic embeddings). Thresholds sit ~6-12 points below to lock in the
       # hybrid gain: a regression to vector-only (recall 0.917 / MRR 0.826 /
       # keywords 0.750) trips the keyword gate.
-      THRESHOLDS = { recall_at_k: 0.90, mrr: 0.85, keyword_presence: 0.80, grounding: 0.90 }.freeze
+      # Abstention thresholds: positives must never be refused (false_abstention is
+      # a MAX), and off-topic negatives must be refused (abstention is a MIN). The
+      # abstention floor is only enforceable when the reranker can actually gate —
+      # the lexical fallback always answers, so it is skipped there (see pass?).
+      THRESHOLDS = {
+        recall_at_k: 0.90, mrr: 0.85, keyword_presence: 0.80, grounding: 0.90,
+        false_abstention: 0.0, abstention: 0.90
+      }.freeze
 
       Row = Struct.new(:id, :question, :document, :rank, :recall, :reciprocal_rank,
-                       :keyword_presence, :grounding, :answer, keyword_init: true)
+                       :keyword_presence, :grounding, :answer, :abstained, keyword_init: true)
+      # One off-topic question: did the system correctly abstain?
+      NegativeRow = Struct.new(:id, :question, :abstained, keyword_init: true)
 
-      Report = Struct.new(:rows, :recall_at_k, :mrr, :keyword_presence, :grounding, :k, keyword_init: true) do
+      Report = Struct.new(:rows, :negative_rows, :recall_at_k, :mrr, :keyword_presence,
+                          :grounding, :false_abstention, :abstention, :abstention_gated, :k,
+                          keyword_init: true) do
         def pass?
           recall_at_k >= THRESHOLDS[:recall_at_k] &&
             mrr >= THRESHOLDS[:mrr] &&
             keyword_presence >= THRESHOLDS[:keyword_presence] &&
-            grounding >= THRESHOLDS[:grounding]
+            grounding >= THRESHOLDS[:grounding] &&
+            false_abstention <= THRESHOLDS[:false_abstention] &&
+            (!abstention_gated || abstention >= THRESHOLDS[:abstention])
         end
 
         def failures
@@ -45,7 +58,8 @@ module Rag
         tenant = Tenant.create!(name: "evals-#{SecureRandom.hex(4)}", api_key: SecureRandom.hex(16))
         documents = ingest_corpus(tenant)
         rows = @golden_set.questions.map { |q| evaluate(tenant, documents, q) }
-        build_report(rows)
+        negative_rows = @golden_set.negatives.map { |n| evaluate_negative(tenant, documents, n) }
+        build_report(rows, negative_rows)
       ensure
         Rails.cache = original_cache
       end
@@ -84,22 +98,41 @@ module Rag
           reciprocal_rank: Metrics.reciprocal_rank(result.sources, **target),
           keyword_presence: Metrics.keyword_presence(result.answer, question.expected_keywords),
           grounding: Metrics.grounding(result.answer, contexts),
-          answer: result.answer
+          answer: result.answer,
+          abstained: abstained?(result.answer)
         )
       end
 
-      def build_report(rows)
+      # Off-topic question: the system should refuse to answer from the corpus.
+      def evaluate_negative(tenant, documents, negative)
+        document_ids = documents.values.map(&:id)
+        result = @query_service.call(tenant: tenant, question: negative.question, document_ids: document_ids)
+        NegativeRow.new(id: negative.id, question: negative.question, abstained: abstained?(result.answer))
+      end
+
+      def abstained?(answer) = answer == Rag::QueryService::NO_ANSWER
+
+      def build_report(rows, negative_rows)
         Report.new(
           rows: rows,
+          negative_rows: negative_rows,
           recall_at_k: average(rows.map(&:recall)),
           mrr: average(rows.map(&:reciprocal_rank)),
           keyword_presence: average(rows.map(&:keyword_presence)),
           grounding: average(rows.map(&:grounding)),
+          # Positives wrongly refused (must be 0); negatives correctly refused.
+          false_abstention: average(rows.map { |r| r.abstained ? 1.0 : 0.0 }),
+          abstention: negative_rows.empty? ? 1.0 : average(negative_rows.map { |r| r.abstained ? 1.0 : 0.0 }),
+          # The lexical reranker answers everything (confident?(0.0) == true), so the
+          # abstention floor only applies when the active reranker can actually gate.
+          abstention_gated: !@query_service.reranker.confident?(0.0),
           k: @k
         )
       end
 
       def average(values)
+        return 0.0 if values.empty?
+
         values.sum.fdiv(values.size)
       end
     end

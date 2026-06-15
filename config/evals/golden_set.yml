@@ -170,3 +170,22 @@ questions:
     question: "¿Cada cuánto debo cambiar mi clave de acceso?"
     expected_pages: [1]
     expected_keywords: ["90 dias"]
+
+# Preguntas FUERA del corpus: el sistema debe ABSTENERSE ("No encontré informacion…")
+# en vez de inventar. Solo el reranker neural puede gatear (el lexico responde
+# siempre, ver Reranker#confident?), asi que la tasa de abstencion solo se exige en
+# el tier neural (RERANKER=neural); en el tier lexico de CI solo se verifica que las
+# POSITIVAS nunca abstienen (false_abstention). Algunas son colisiones lexicas a
+# proposito ("mundial", "respaldo de auto") que comparten tokens con el corpus pero
+# no estan cubiertas.
+negatives:
+  - id: neg-001
+    question: "¿Cuál es la capital de Francia?"
+  - id: neg-002
+    question: "¿Cómo hago una torta de chocolate?"
+  - id: neg-003
+    question: "¿Qué es la fotosíntesis?"
+  - id: neg-004
+    question: "¿Quién ganó el último mundial de fútbol?"
+  - id: neg-005
+    question: "¿Cuánto cuesta un boleto de avión a Tokio?"

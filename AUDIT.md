@@ -238,6 +238,22 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
   lleva `CACHE_VERSION` para que cambios de formato de respuesta **se invaliden solos** (un
   cambio de código quedaba enmascarado por la caché versionada-por-contenido).
 
+- **Gate de abstención medido (golden set negativo)** — la abstención (umbral 0.18) estaba
+  validada a mano y en prod, pero **nada automatizado** la protegía de una regresión silenciosa
+  (subir/bajar `RERANK_MIN_SCORE`, cambiar el modelo, romper el plumbing de `confident` → el RAG
+  volvería a *inventar* sin que ningún test lo note). Ahora el harness lleva un bloque
+  `negatives:` en el golden set (5 preguntas fuera del corpus, incl. la colisión léxica
+  "mundial") y dos métricas: **`false_abstention`** (positivas abstenidas por error, máx **0.0**)
+  y **`abstention`** (negativas correctamente abstenidas, mín **0.90**). Respeta la asimetría
+  de los rerankers: el **léxico** no puede abstener (`confident? = true`), así que el piso de
+  abstención **solo se exige cuando el reranker realmente gatea** (`abstention_gated`); en el
+  tier léxico de CI solo se verifica que las positivas nunca abstienen. El gate de CI determinista
+  (`rag_quality_test.rb`) añade el test de `false_abstention == 0`; la abstención real es gate del
+  tier neural (`RERANKER=neural bin/rails rag:evals`), espejo del tier Gemini. **Medido:** léxico
+  → false_abstention 0.0, abstención n/a, PASS; neural → 5/5 abstienen, abstention 1.0, PASS.
+  Sanidad de regresión: `RERANK_MIN_SCORE=0.95` falla por false_abstention (tumba positivas) y
+  `=0.01` falla por abstention (deja de abstener) — el gate efectivamente protege el umbral.
+
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
 
 0. **Del audit, menor/cosmético:** `WEB_CONCURRENCY=1` deja Puma en cluster-mode con 1 worker
