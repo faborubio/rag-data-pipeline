@@ -123,7 +123,8 @@ CREATE TABLE public.query_logs (
     cache_hit boolean DEFAULT false NOT NULL,
     sources_count integer DEFAULT 0 NOT NULL,
     latency_ms integer,
-    created_at timestamp(6) without time zone NOT NULL
+    created_at timestamp(6) without time zone NOT NULL,
+    rating integer
 );
 
 
@@ -1120,6 +1121,7 @@ ALTER TABLE ONLY public.solid_queue_scheduled_executions
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260615140000'),
 ('20260615130000'),
 ('20260615120000'),
 ('20260614120000'),

@@ -37,6 +37,10 @@
     .meta { margin-top:8px; font-size:11px; color:var(--muted); }
     .meta .pill { background:#0b1220; border:1px solid #334155; border-radius:999px; padding:1px 8px; margin-right:6px; }
     .meta .pill.cache { color:var(--ok); border-color:rgba(34,197,94,.4); }
+    sup.cite { color:var(--accent); font-weight:700; font-size:11px; }
+    .feedback { margin-top:8px; display:flex; align-items:center; gap:6px; }
+    .feedback .fb { background:#0b1220; border:1px solid #334155; padding:2px 8px; font-size:13px; }
+    .feedback .fb:hover { border-color:var(--accent); }
     .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
     .chip { font-size:12px; background:#0b1220; border:1px solid #334155; color:var(--text); border-radius:999px; padding:5px 10px; cursor:pointer; font-weight:400; }
     .chip:hover { border-color:var(--accent); }
@@ -159,7 +163,8 @@
           <div class="stat"><span>Consultas</span><b>${a.total}</b></div>
           <div class="stat"><span>Respondidas</span><b>${a.answered} (${rate}%)</b></div>
           <div class="stat"><span>Abstenciones</span><b>${a.abstained}</b></div>
-          <div class="stat"><span>Cache hits</span><b>${cache}%</b></div>`;
+          <div class="stat"><span>Cache hits</span><b>${cache}%</b></div>
+          <div class="stat"><span>Feedback</span><b>👍 ${a.thumbs_up || 0} · 👎 ${a.thumbs_down || 0}</b></div>`;
         if (a.top_questions && a.top_questions.length) {
           html += `<div class="muted" style="margin-top:10px">Más preguntadas</div>` +
             a.top_questions.slice(0, 4).map(q => `<div class="gap">· ${escapeHtml(q.question)} <b>×${q.count}</b></div>`).join("");
@@ -210,9 +215,34 @@
     function finishAnswer(bot, answer, payload) {
       const sources = payload.sources || [];
       const abstained = sources.length === 0;
+      bot.innerHTML = highlightCitations(answer); // re-render with [n] highlighted
       if (abstained) bot.classList.add("abstain");
       renderSources(bot, sources);
       renderMeta(bot, payload, abstained);
+      if (!abstained) renderFeedback(bot, payload.query_id);
+    }
+    function highlightCitations(text) {
+      return escapeHtml(text).replace(/\[(\d+)\]/g, '<sup class="cite">[$1]</sup>');
+    }
+    function renderFeedback(bot, queryId) {
+      if (!queryId) return;
+      const f = document.createElement("div"); f.className = "feedback";
+      f.innerHTML = `<span class="muted">¿Útil?</span>
+        <button class="fb" onclick="sendFeedback(this,'${queryId}',1)">👍</button>
+        <button class="fb" onclick="sendFeedback(this,'${queryId}',-1)">👎</button>`;
+      bot.appendChild(f);
+    }
+    async function sendFeedback(btn, queryId, rating) {
+      const box = btn.parentElement;
+      try {
+        await fetch("/api/v1/feedback", {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ query_id: queryId, rating })
+        });
+        box.innerHTML = `<span class="muted">¡Gracias! ${rating > 0 ? "👍" : "👎"}</span>`;
+        loadAnalytics();
+      } catch (e) { box.innerHTML = `<span class="muted">No se pudo enviar el voto.</span>`; }
     }
     function renderMeta(bot, payload, abstained) {
       const m = document.createElement("div"); m.className = "meta";
@@ -227,7 +257,7 @@
     function renderSources(bot, sources) {
       if (!sources.length) return;
       const s = document.createElement("div"); s.className = "sources";
-      s.innerHTML = "<b>Fuentes:</b><br/>" + sources.map(x => `· pág. ${x.page}: ${escapeHtml(x.text_snippet || "")}`).join("<br/>");
+      s.innerHTML = "<b>Fuentes:</b><br/>" + sources.map((x, i) => `<b>[${i + 1}]</b> pág. ${x.page}: ${escapeHtml(x.text_snippet || "")}`).join("<br/>");
       bot.appendChild(s);
     }
     function scroll(){ $("messages").scrollTop = $("messages").scrollHeight; }

@@ -18,6 +18,8 @@ Rails.application.routes.draw do
       get "demo", to: "demo#show"
       # Per-tenant query analytics (volume, answer rate, content gaps).
       get "analytics", to: "analytics#show"
+      # 👍/👎 feedback on a previous answer (by query_id).
+      post "feedback", to: "feedback#create"
     end
   end
 

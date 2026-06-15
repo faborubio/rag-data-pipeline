@@ -60,6 +60,12 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
     assert_not QueryLog.where(tenant: @tenant).order(:created_at).last.answered, "an abstention is logged as not answered"
   end
 
+  test "exposes the query_id so feedback can be attached to the answer" do
+    result = Rag::QueryService.new(reranker: Rag::Reranker.new).call(tenant: @tenant, question: "¿incendio?", document_ids: [ @document.id ])
+    assert result.query_id.present?
+    assert_equal result.query_id, QueryLog.where(tenant: @tenant).order(:created_at).last.id
+  end
+
   test "the streaming path also abstains when confidence is low" do
     svc = Rag::QueryService.new(reranker: FixedScoreReranker.new(0.05))
     streamed = +""

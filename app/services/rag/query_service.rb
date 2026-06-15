@@ -23,7 +23,7 @@ module Rag
     # corpus actually covers the question — abstaining beats inventing.
     NO_ANSWER = "No encontré información sobre eso en los documentos consultados.".freeze
 
-    Result = Struct.new(:answer, :sources, :latency_ms, keyword_init: true)
+    Result = Struct.new(:answer, :sources, :latency_ms, :query_id, keyword_init: true)
 
     def initialize(embedder: Embedder.new, llm: Llm.new, reranker: Rag.reranker)
       @embedder = embedder
@@ -53,7 +53,8 @@ module Rag
           "rag.latency_ms" => latency_ms
         )
         log_query(tenant, question, payload, cache_hit, latency_ms)
-        Result.new(answer: payload[:answer], sources: payload[:sources], latency_ms: latency_ms)
+        Result.new(answer: payload[:answer], sources: payload[:sources],
+                   latency_ms: latency_ms, query_id: Current.rag[:query_id])
       end
     end
 
@@ -183,7 +184,7 @@ module Rag
     # Append-only analytics row per query. Best-effort: analytics must never break
     # a query, so any failure is swallowed.
     def log_query(tenant, question, payload, cache_hit, latency_ms)
-      QueryLog.create!(
+      log = QueryLog.create!(
         tenant: tenant,
         question: question.to_s,
         answered: payload[:answer] != NO_ANSWER,
@@ -192,6 +193,8 @@ module Rag
         sources_count: payload[:sources].size,
         latency_ms: latency_ms
       )
+      # Exposed so the response can carry it and the client can attach feedback.
+      Current.rag[:query_id] = log.id
     rescue StandardError => e
       Rails.logger.warn("[Analytics] failed to log query: #{e.class}: #{e.message}")
     end

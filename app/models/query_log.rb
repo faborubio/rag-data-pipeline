@@ -1,6 +1,9 @@
 class QueryLog < ApplicationRecord
   belongs_to :tenant
 
+  # User feedback on the answer: 1 = 👍, -1 = 👎, nil = no vote.
+  validates :rating, inclusion: { in: [ -1, 1 ] }, allow_nil: true
+
   scope :answered, -> { where(answered: true) }
   scope :abstained, -> { where(answered: false) }
 

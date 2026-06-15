@@ -19,7 +19,7 @@ module Api
           result = Rag::QueryService.new.call(
             tenant: current_tenant, question: question, document_ids: document_ids
           )
-          render json: { answer: result.answer, sources: result.sources, latency_ms: result.latency_ms }
+          render json: { answer: result.answer, sources: result.sources, latency_ms: result.latency_ms, query_id: result.query_id }
         end
       end
 
@@ -43,7 +43,7 @@ module Api
         ) do |delta|
           sse.write({ delta: delta }, event: "token")
         end
-        sse.write({ sources: sources, done: true,
+        sse.write({ sources: sources, done: true, query_id: Current.rag[:query_id],
                     cache_hit: Current.rag[:cache_hit], latency_ms: Current.rag[:latency_ms] }, event: "done")
       rescue ActionController::Live::ClientDisconnected
         # client closed the connection mid-stream; nothing to do

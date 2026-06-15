@@ -12,6 +12,8 @@ module Api
           answered: scope.answered.count,
           abstained: scope.abstained.count,
           cache_hit_rate: total.zero? ? 0.0 : (scope.where(cache_hit: true).count.fdiv(total)).round(3),
+          thumbs_up: scope.where(rating: 1).count,
+          thumbs_down: scope.where(rating: -1).count,
           top_questions: QueryLog.top_questions(current_tenant, limit: 10),
           content_gaps: QueryLog.content_gaps(current_tenant, limit: 10)
         }
