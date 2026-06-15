@@ -31,35 +31,45 @@
     .msg { max-width:85%; padding:10px 14px; border-radius:12px; white-space:pre-wrap; line-height:1.45; }
     .msg.user { align-self:flex-end; background:var(--accent); }
     .msg.bot { align-self:flex-start; background:#0b1220; border:1px solid #334155; }
+    .msg.bot.abstain { border-color:var(--warn); color:var(--warn); }
     .sources { margin-top:8px; font-size:12px; color:var(--muted); }
     .sources b { color:var(--text); }
+    .meta { margin-top:8px; font-size:11px; color:var(--muted); }
+    .meta .pill { background:#0b1220; border:1px solid #334155; border-radius:999px; padding:1px 8px; margin-right:6px; }
+    .meta .pill.cache { color:var(--ok); border-color:rgba(34,197,94,.4); }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+    .chip { font-size:12px; background:#0b1220; border:1px solid #334155; color:var(--text); border-radius:999px; padding:5px 10px; cursor:pointer; font-weight:400; }
+    .chip:hover { border-color:var(--accent); }
+    .stat { display:flex; justify-content:space-between; font-size:13px; padding:3px 0; }
+    .stat b { color:var(--text); } .stat span { color:var(--muted); }
     .note { font-size:12px; background:#0b1220; border:1px dashed #334155; border-radius:8px; padding:10px; color:var(--muted); }
     code { background:#0b1220; padding:1px 6px; border-radius:4px; }
+    .gap { font-size:12px; color:var(--muted); padding:2px 0; }
   </style>
 </head>
 <body>
   <header>
     <h1>🚀 RAG Data Pipeline</h1>
-    <span class="tag">demo pública · solo lectura · chat con streaming</span>
+    <span class="tag">demo pública · solo lectura · streaming · sabe cuándo no responder</span>
   </header>
 
   <div class="wrap">
-    <!-- LEFT: read-only demo info + documents -->
+    <!-- LEFT: demo info, documents, analytics -->
     <div>
       <input id="apiKey" type="hidden" />
       <div class="panel">
         <h2>Demo de solo lectura</h2>
         <div class="note" id="demoNote">Cargando la demo…</div>
-        <div class="note" style="margin-top:10px">
-          Esta demo pública está <b>sembrada con documentos de ejemplo</b> y no
-          permite subir archivos. Para ejecutarla con tus propios PDFs, clona el
-          repo (botón ↗ arriba) y sigue el README.
-        </div>
       </div>
 
       <div class="panel" style="margin-top:14px">
         <h2>Documentos <button style="float:right;padding:4px 10px;font-size:12px" onclick="loadDocs()">↻</button></h2>
         <div id="docs"><div class="muted">Cargando documentos…</div></div>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h2>Analítica <button style="float:right;padding:4px 10px;font-size:12px" onclick="loadAnalytics()">↻</button></h2>
+        <div id="analytics"><div class="muted">Sin consultas todavía.</div></div>
       </div>
     </div>
 
@@ -68,7 +78,8 @@
       <h2>Chat sobre tus documentos</h2>
       <div id="messages"></div>
       <div class="muted" id="selInfo" style="margin:8px 0"></div>
-      <div class="row" style="margin-top:8px">
+      <div class="chips" id="chips"></div>
+      <div class="row" style="margin-top:4px">
         <textarea id="question" placeholder="¿Qué hago en caso de incendio?"></textarea>
       </div>
       <button id="askBtn" onclick="ask()">Preguntar (streaming)</button>
@@ -78,23 +89,41 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const selected = new Set();
+    // Suggested questions — the last one is deliberately off-topic to show the
+    // model abstaining instead of inventing an answer.
+    const SUGGESTIONS = [
+      "¿Qué hago en caso de incendio?",
+      "¿Puedo usar el ascensor si hay fuego?",
+      "¿Cuál es la capital de Francia? (fuera de tema)"
+    ];
 
     function key() { return ($("apiKey").value || "").trim(); }
     function authHeaders(extra = {}) { return Object.assign({ "Authorization": "Bearer " + key() }, extra); }
 
     window.onload = async () => {
+      renderChips();
       try {
         const r = await fetch("/api/v1/demo");
         if (!r.ok) throw new Error("HTTP " + r.status);
         const j = await r.json();
         $("apiKey").value = j.api_key;
-        $("demoNote").innerHTML = `Conectado al tenant <b>${escapeHtml(j.tenant)}</b>. Selecciona documentos y pregunta.`;
-        loadDocs();
+        $("demoNote").innerHTML = `Conectado al tenant <b>${escapeHtml(j.tenant)}</b>. Pregunta sobre los documentos — o algo fuera de tema para ver cómo <b>se abstiene</b>.`;
+        await loadDocs();
+        loadAnalytics();
       } catch (e) {
         $("demoNote").textContent = "No se pudo iniciar la demo: " + e.message;
         $("docs").innerHTML = `<div class="muted">Demo no disponible.</div>`;
       }
     };
+
+    function renderChips() {
+      $("chips").innerHTML = SUGGESTIONS.map(q =>
+        `<span class="chip" onclick="useSuggestion(this)">${escapeHtml(q)}</span>`).join("");
+    }
+    function useSuggestion(el) {
+      $("question").value = el.textContent.replace(/\s*\(fuera de tema\)$/, "");
+      ask();
+    }
 
     async function loadDocs() {
       if (!key()) return;
@@ -103,6 +132,8 @@
         if (!r.ok) { $("docs").innerHTML = `<div class="muted">Error ${r.status} (¿API key válida?)</div>`; return; }
         const docs = await r.json();
         if (!docs.length) { $("docs").innerHTML = `<div class="muted">Aún no hay documentos.</div>`; return; }
+        // Auto-select every completed document so the user can ask right away.
+        docs.forEach(d => { if (d.status === "completed") selected.add(d.id); });
         $("docs").innerHTML = docs.map(d => `
           <div class="doc">
             <input type="checkbox" ${selected.has(d.id) ? "checked" : ""} onchange="toggle('${d.id}', this.checked)" ${d.status === 'completed' ? '' : 'disabled'} />
@@ -114,6 +145,32 @@
     }
     function toggle(id, on) { on ? selected.add(id) : selected.delete(id); updateSel(); }
     function updateSel(){ $("selInfo").textContent = selected.size ? `${selected.size} documento(s) seleccionado(s)` : "Selecciona documentos (completados) para preguntar."; }
+
+    async function loadAnalytics() {
+      if (!key()) return;
+      try {
+        const r = await fetch("/api/v1/analytics", { headers: authHeaders() });
+        if (!r.ok) return;
+        const a = await r.json();
+        if (!a.total) { $("analytics").innerHTML = `<div class="muted">Sin consultas todavía.</div>`; return; }
+        const rate = Math.round(100 * a.answered / a.total);
+        const cache = Math.round(100 * a.cache_hit_rate);
+        let html = `
+          <div class="stat"><span>Consultas</span><b>${a.total}</b></div>
+          <div class="stat"><span>Respondidas</span><b>${a.answered} (${rate}%)</b></div>
+          <div class="stat"><span>Abstenciones</span><b>${a.abstained}</b></div>
+          <div class="stat"><span>Cache hits</span><b>${cache}%</b></div>`;
+        if (a.top_questions && a.top_questions.length) {
+          html += `<div class="muted" style="margin-top:10px">Más preguntadas</div>` +
+            a.top_questions.slice(0, 4).map(q => `<div class="gap">· ${escapeHtml(q.question)} <b>×${q.count}</b></div>`).join("");
+        }
+        if (a.content_gaps && a.content_gaps.length) {
+          html += `<div class="muted" style="margin-top:10px">Vacíos de contenido (sin respuesta)</div>` +
+            a.content_gaps.slice(0, 4).map(q => `<div class="gap">· ${escapeHtml(q.question)} <b>×${q.count}</b></div>`).join("");
+        }
+        $("analytics").innerHTML = html;
+      } catch (e) { /* analytics is best-effort */ }
+    }
 
     async function ask() {
       const q = $("question").value.trim();
@@ -143,13 +200,29 @@
             if (!data) continue;
             const payload = JSON.parse(data);
             if (ev === "token") { answer += payload.delta || ""; bot.textContent = answer; scroll(); }
-            else if (ev === "done") { renderSources(bot, payload.sources || []); scroll(); }
+            else if (ev === "done") { finishAnswer(bot, answer, payload); scroll(); }
           }
         }
       } catch (e) { bot.textContent = "Error de red: " + e.message; }
-      finally { $("askBtn").disabled = false; }
+      finally { $("askBtn").disabled = false; loadAnalytics(); }
     }
 
+    function finishAnswer(bot, answer, payload) {
+      const sources = payload.sources || [];
+      const abstained = sources.length === 0;
+      if (abstained) bot.classList.add("abstain");
+      renderSources(bot, sources);
+      renderMeta(bot, payload, abstained);
+    }
+    function renderMeta(bot, payload, abstained) {
+      const m = document.createElement("div"); m.className = "meta";
+      const pills = [];
+      if (typeof payload.latency_ms === "number") pills.push(`<span class="pill">⏱ ${payload.latency_ms} ms</span>`);
+      pills.push(payload.cache_hit ? `<span class="pill cache">⚡ caché</span>` : `<span class="pill">generado</span>`);
+      if (abstained) pills.push(`<span class="pill">✋ fuera del corpus</span>`);
+      m.innerHTML = pills.join("");
+      bot.appendChild(m);
+    }
     function addMsg(role, text) { const d = document.createElement("div"); d.className = "msg " + role; d.textContent = text; $("messages").appendChild(d); scroll(); return d; }
     function renderSources(bot, sources) {
       if (!sources.length) return;

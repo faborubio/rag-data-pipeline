@@ -54,10 +54,10 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
     assert_difference -> { QueryLog.where(tenant: @tenant).count }, 1 do
       Rag::QueryService.new(reranker: Rag::Reranker.new).call(tenant: @tenant, question: "¿incendio?", document_ids: [ @document.id ])
     end
-    assert QueryLog.where(tenant: @tenant).last.answered, "an answered query is logged as answered"
+    assert QueryLog.where(tenant: @tenant).order(:created_at).last.answered, "an answered query is logged as answered"
 
     Rag::QueryService.new(reranker: FixedScoreReranker.new(0.05)).call(tenant: @tenant, question: "¿capital de Francia?", document_ids: [ @document.id ])
-    assert_not QueryLog.where(tenant: @tenant).last.answered, "an abstention is logged as not answered"
+    assert_not QueryLog.where(tenant: @tenant).order(:created_at).last.answered, "an abstention is logged as not answered"
   end
 
   test "the streaming path also abstains when confidence is low" do

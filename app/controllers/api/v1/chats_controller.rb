@@ -43,7 +43,8 @@ module Api
         ) do |delta|
           sse.write({ delta: delta }, event: "token")
         end
-        sse.write({ sources: sources, done: true }, event: "done")
+        sse.write({ sources: sources, done: true,
+                    cache_hit: Current.rag[:cache_hit], latency_ms: Current.rag[:latency_ms] }, event: "done")
       rescue ActionController::Live::ClientDisconnected
         # client closed the connection mid-stream; nothing to do
       ensure
