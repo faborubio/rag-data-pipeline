@@ -189,7 +189,25 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
   re-ejecutable para ingerir un PDF local y reanudar entre días. `GEMINI_THROTTLE_SECONDS`
   def 5s. Camino elegido para no pagar; el salto a Gemini billing lo volvería innecesario.
 
+- **Hardening de auditoría (3 bombas)** — (1) **fuga de temp**: `cleanup` del upload solo
+  corría en éxito → cualquier ingesta fallida dejaba el archivo (100MB+) y llenaba el
+  disco; ahora se borra también en fallo terminal y en doc borrado. (2) **upload sin tope
+  en el edge**: Caddy rechaza bodies >170MB (por encima del límite app de 160MB) para que
+  un body gigante no se streamee a disco antes del check (DoS). (3) **ingesta web no era
+  rate-limit-aware**: un 429 marcaba `failed` tras 5 reintentos rápidos; ahora reintenta
+  cada hora (`RATE_LIMIT_ATTEMPTS=6`) dejando el doc `processing` y reanudando desde la
+  caché del embedder. Auditoría también confirmó OK: OTel no floodea prod (exporter
+  gateado por entorno), auth en tiempo constante (blind index), retrieval scopeado por
+  tenant. Quedan abiertos (no resueltos hoy): Puma 3 threads + streaming (inanición),
+  `insert_all!` sin lotear, y caché embeddings vs respuestas en los mismos 256MB.
+
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
+
+0. **Del audit, sin resolver:** Puma 3 threads vs streaming (`ActionController::Live`
+   ocupa un thread por stream → 3 streams bloquean todo); `insert_all!` en un statement
+   gigante (lotear a ~500); caché de embeddings (TTL 30d) compartiendo 256MB con la de
+   respuestas (bajar TTL o separar). `documents_version` sin scope de tenant (cosmético).
+
 
 1. **Generación real con LLM** — el fallback ya es extractivo-enfocado; el salto a
    respuestas generadas requiere proveedor de pago (Gemini con billing / Claude
