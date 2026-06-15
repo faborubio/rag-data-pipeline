@@ -89,7 +89,9 @@ CREATE TABLE public.document_chunks (
     embedding public.vector(1536),
     page_number integer,
     created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
+    updated_at timestamp(6) without time zone NOT NULL,
+    content_hash character varying,
+    embedding_provider character varying
 );
 
 
@@ -777,6 +779,13 @@ CREATE INDEX index_document_chunks_on_embedding_hnsw ON public.document_chunks U
 
 
 --
+-- Name: index_document_chunks_on_hash_and_provider; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_document_chunks_on_hash_and_provider ON public.document_chunks USING btree (content_hash, embedding_provider);
+
+
+--
 -- Name: index_documents_on_tenant_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1071,6 +1080,7 @@ ALTER TABLE ONLY public.solid_queue_scheduled_executions
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260615120000'),
 ('20260614120000'),
 ('20260612120000'),
 ('20260603120006'),
