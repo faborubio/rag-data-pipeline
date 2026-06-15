@@ -6,30 +6,24 @@ El objetivo principal de este proyecto es demostrar habilidades avanzadas de **i
 
 ---
 
-## ✅ Estado de Implementación
+## ℹ️ Naturaleza de este documento
 
-> Este documento es la **especificación original**. El proyecto se implementó **por completo y se extendió** más allá del alcance inicial. Para la guía de uso, arquitectura y endpoints actualizados, ver el **[README](README.md)**.
+Este es el **documento de especificación original** (requisitos + SAD + diseño del
+endpoint). Describe el alcance que se *pidió* al inicio. El proyecto se implementó
+por completo y **se extendió bastante más allá** de esta spec.
 
-### Requisitos de la spec — todos implementados
-
-- ✅ Esquema con **UUID** + **pgvector/HNSW** (`vector_cosine_ops`) — `db/migrate/`, `db/structure.sql`
-- ✅ Modelos `Tenant` / `Document` (enum `status`) / `DocumentChunk` (`has_neighbors`) — `app/models/`
-- ✅ **Cifrado** de API keys en reposo (Lockbox + Blind Index) — `app/models/tenant.rb`
-- ✅ **Pipeline de ingestión asíncrono**: `pdftotext` → chunking (langchainrb) → embeddings en lotes de 20 — `app/services/rag/`, `app/jobs/document_ingestion_job.rb`
-- ✅ **Resiliencia**: reintentos con backoff exponencial + **Circuit Breaker** — `app/services/rag/circuit_breaker.rb`
-- ✅ Endpoint **`POST /api/v1/chats/query`** (coseno top-5, filtro por `tenant_id` + `document_ids`, payload exacto) — `app/controllers/api/v1/chats_controller.rb`, `app/services/rag/query_service.rb`
-- ✅ **Autenticación por tenant** vía API key (blind index)
-- ✅ Stack: Rails 8 API · Puma · Solid Queue · Solid Cache · PostgreSQL 16 + pgvector · Kamal
-
-### Construido más allá de la spec (extras)
-
-- ➕ **Suite de tests** (Minitest, 53 tests) y **CI verde** en GitHub Actions
-- ➕ **Streaming SSE** real (`stream: true`) — respuesta token por token
-- ➕ **Rate limiting por tenant** (rack-attack, 429 + Retry-After)
-- ➕ **Caché distribuida** (Solid Cache sobre PostgreSQL) para la caché semántica y los contadores
-- ➕ **Observabilidad**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics`
-- ➕ **Demo web** sin build (`public/demo.html`): subir PDF + chat con streaming
-- ➕ Worker de Solid Queue dedicado (`bin/jobs`) o embebido en Puma (`bin/dev`)
+> ⚠️ **Para el estado actual NO uses este archivo.** Lo hecho, las decisiones y los
+> hallazgos viven en **[AUDIT.md](AUDIT.md)** (bitácora/changelog) y
+> **[README.md](README.md)** (overview + roadmap); para orientación de sesión, ver
+> **[CLAUDE.md](CLAUDE.md)**.
+>
+> Varios detalles **evolucionaron** respecto de lo escrito abajo, p.ej.: chunking
+> **estructural** (párrafos/secciones) en vez de splitter por caracteres; formatos
+> **TXT/MD** además de PDF (límite **160MB**, no 20MB); **embeddings Gemini** (free
+> tier) con fallback, no solo OpenAI; respuesta **extractiva con citas inline** y
+> **abstención por confianza** (el LLM generativo está diferido); deploy con **Docker
+> Compose + Caddy** en un VPS (no Kamal); y muchos extras (caché versionada por
+> contenido, analítica, feedback, observabilidad, evals con gate en CI).
 
 ---
 

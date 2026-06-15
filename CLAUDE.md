@@ -29,6 +29,9 @@ rate limiting (rack-attack), evals con gate en CI (recall/MRR/keywords/grounding
 - **[DEPLOY.md](DEPLOY.md)** — runbook del VPS (Docker Compose + Caddy). Incluye
   el gotcha del inode al cambiar el `Caddyfile`.
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — incidentes recurrentes y sus fixes.
+- **[SPEC.md](SPEC.md)** — especificación **original** (requisitos + SAD + diseño
+  del endpoint). Útil para el *por qué*; NO para el estado actual (varios detalles
+  evolucionaron — ver AUDIT/README).
 
 ## Comandos clave
 
