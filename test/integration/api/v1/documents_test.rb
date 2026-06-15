@@ -26,13 +26,26 @@ class Api::V1::DocumentsTest < ActionDispatch::IntegrationTest
     assert_equal "processing", body["status"]
   end
 
-  test "rejects non-pdf files" do
-    txt = Rails.root.join("tmp", "not_pdf.txt")
-    File.write(txt, "hola")
+  test "rejects unsupported file types" do
+    csv = Rails.root.join("tmp", "data.csv")
+    File.write(csv, "a,b,c")
     post api_v1_documents_url,
-         params: { file: Rack::Test::UploadedFile.new(txt, "text/plain") },
+         params: { file: Rack::Test::UploadedFile.new(csv, "text/csv") },
          headers: auth_headers(@tenant)
     assert_response :unprocessable_entity
+  ensure
+    File.delete(csv) if csv && File.exist?(csv)
+  end
+
+  test "accepts a plain-text file and enqueues ingestion" do
+    txt = Rails.root.join("tmp", "notes.txt")
+    File.write(txt, "Notas sobre seguridad e incendios.")
+    assert_enqueued_with(job: DocumentIngestionJob) do
+      post api_v1_documents_url,
+           params: { file: Rack::Test::UploadedFile.new(txt, "text/plain") },
+           headers: auth_headers(@tenant)
+    end
+    assert_response :accepted
   ensure
     File.delete(txt) if txt && File.exist?(txt)
   end

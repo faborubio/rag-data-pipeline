@@ -25,7 +25,7 @@ module Api
 
         file = params[:file]
         return render_error("file is required", :unprocessable_entity)        if file.blank?
-        return render_error("only .pdf files are allowed", :unprocessable_entity) unless pdf?(file)
+        return render_error("only PDF, TXT and Markdown files are allowed", :unprocessable_entity) unless accepted?(file)
         return render_error("file exceeds the #{MAX_SIZE / 1.megabyte}MB limit", :unprocessable_entity) if file.size > MAX_SIZE
 
         document = current_tenant.documents.create!(filename: file.original_filename, status: :processing)
@@ -43,10 +43,12 @@ module Api
 
       private
 
-      # Validate both the extension and the magic bytes, so a non-PDF renamed
-      # to .pdf is rejected up front instead of failing later in pdftotext.
-      def pdf?(file)
-        return false unless File.extname(file.original_filename.to_s).downcase == ".pdf"
+      # Accept by extension; for PDFs also check the magic bytes so a non-PDF
+      # renamed to .pdf is rejected up front instead of failing later in pdftotext.
+      def accepted?(file)
+        ext = File.extname(file.original_filename.to_s).downcase
+        return false unless Rag::ACCEPTED_EXTENSIONS.include?(ext)
+        return true unless Rag::PDF_EXTENSIONS.include?(ext)
 
         header = file.read(5)
         file.rewind
@@ -56,7 +58,9 @@ module Api
       def store(file)
         dir = Rails.root.join("tmp", "uploads")
         FileUtils.mkdir_p(dir)
-        path = dir.join("#{SecureRandom.uuid}.pdf")
+        # Preserve the real extension so the ingestor picks the right extractor.
+        ext = File.extname(file.original_filename.to_s).downcase
+        path = dir.join("#{SecureRandom.uuid}#{ext}")
         # Rack already buffered the upload to a tempfile on disk; stream-copy it
         # so a 100MB+ file never lands in process memory.
         file.rewind

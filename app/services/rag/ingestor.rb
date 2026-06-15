@@ -7,7 +7,9 @@ module Rag
     # Rows per INSERT statement on persist; caps statement size for big documents.
     INSERT_BATCH_SIZE = 500
 
-    def initialize(extractor: PdfTextExtractor.new,
+    # extractor: nil -> chosen per file by extension (PDF vs plain text). Tests
+    # can still inject a specific extractor.
+    def initialize(extractor: nil,
                    chunker: SemanticChunker.new,
                    embedder: Embedder.new)
       @extractor = extractor
@@ -17,8 +19,9 @@ module Rag
 
     # Returns the number of chunks persisted.
     def call(document, file_path)
+      extractor = @extractor || Rag.extractor_for(file_path)
       Rag.tracer.in_span("rag.ingest", attributes: { "rag.document.id" => document.id.to_s }) do |span|
-        pages = Rag.tracer.in_span("rag.extract") { @extractor.extract(file_path) }
+        pages = Rag.tracer.in_span("rag.extract") { extractor.extract(file_path) }
 
         pending = Rag.tracer.in_span("rag.chunk") do
           chunks = []

@@ -22,6 +22,19 @@ class Rag::IngestorTest < ActiveSupport::TestCase
     File.delete(path) if path && File.exist?(path)
   end
 
+  test "ingests a plain-text (.md) file via the dispatched extractor" do
+    path = Rails.root.join("tmp", "ingestor_md_#{SecureRandom.hex(4)}.md")
+    File.write(path, "# Seguridad\n\nEn caso de incendio, evacuar por las escaleras.\n\nNo usar el ascensor.")
+
+    count = Rag::Ingestor.new.call(@document, path.to_s)
+
+    assert_operator count, :>=, 1
+    assert_equal count, @document.document_chunks.count
+    assert_equal 1536, @document.document_chunks.first.embedding.size
+  ensure
+    File.delete(path) if path && File.exist?(path)
+  end
+
   test "re-ingesting replaces previous chunks" do
     path = build_pdf(Rails.root.join("tmp", "ingestor_reingest.pdf"), [ "Una sola pagina." ])
     Rag::Ingestor.new.call(@document, path)

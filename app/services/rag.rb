@@ -8,6 +8,17 @@ module Rag
   GEMINI_EMBEDDING_MODEL = "gemini-embedding-001".freeze
   CHAT_MODEL = "gpt-4o-mini".freeze
 
+  # Accepted upload formats and the extractor each maps to.
+  PDF_EXTENSIONS = %w[.pdf].freeze
+  TEXT_EXTENSIONS = %w[.txt .md .markdown].freeze
+  ACCEPTED_EXTENSIONS = (PDF_EXTENSIONS + TEXT_EXTENSIONS).freeze
+
+  # Picks the extractor for a file by extension (Write Path is format-agnostic
+  # past this point: chunk -> embed -> persist is identical for every format).
+  def self.extractor_for(path)
+    TEXT_EXTENSIONS.include?(File.extname(path).downcase) ? PlainTextExtractor.new : PdfTextExtractor.new
+  end
+
   # Rate limits (429) are backpressure, not an outage, so they are ignored by the
   # breaker — otherwise a few throttled batches during a large ingest would trip
   # it and abort the whole document. The Embedder retries 429s with backoff.
