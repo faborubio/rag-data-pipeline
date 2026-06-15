@@ -120,4 +120,43 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
     Rails.cache = original_cache
     Current.reset
   end
+
+  test "streaming path caches the answer and replays it on the second stream" do
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+    svc = Rag::QueryService.new(reranker: Rag::Reranker.new)
+
+    Current.reset
+    first = +""
+    sources = svc.call_streaming(tenant: @tenant, question: "incendio", document_ids: [ @document.id ]) { |d| first << d }
+    assert_equal false, Current.rag[:cache_hit], "first stream is a miss"
+    assert first.present?, "the answer should be streamed in deltas"
+    assert_operator sources.size, :>=, 1
+
+    Current.reset
+    second = +""
+    svc.call_streaming(tenant: @tenant, question: "incendio", document_ids: [ @document.id ]) { |d| second << d }
+    assert_equal true, Current.rag[:cache_hit], "second stream is a hit"
+    assert_equal first, second, "the replayed answer matches the original"
+  ensure
+    Rails.cache = original_cache
+    Current.reset
+  end
+
+  test "streamed and non-streamed paths share the same cache entry" do
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+    svc = Rag::QueryService.new(reranker: Rag::Reranker.new)
+
+    streamed = +""
+    svc.call_streaming(tenant: @tenant, question: "incendio", document_ids: [ @document.id ]) { |d| streamed << d }
+
+    Current.reset
+    result = svc.call(tenant: @tenant, question: "incendio", document_ids: [ @document.id ])
+    assert_equal true, Current.rag[:cache_hit], "non-streaming call reuses the streamed entry"
+    assert_equal streamed, result.answer
+  ensure
+    Rails.cache = original_cache
+    Current.reset
+  end
 end

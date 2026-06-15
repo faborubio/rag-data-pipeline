@@ -53,8 +53,53 @@ module Rag
       end
     end
 
-    # Retrieval only (no generation): used by the streaming Read Path, which
-    # generates the answer token-by-token after fetching the context.
+    # Streaming Read Path, sharing #call's cache (same key, same payload shape).
+    # On a cache hit the stored answer is replayed in one delta — no embed,
+    # search, rerank or LLM. On a miss the LLM is streamed token-by-token, the
+    # text is accumulated and written to the cache at the end, so the next call
+    # — streamed OR not — is a hit. Yields answer deltas; returns the sources.
+    def call_streaming(tenant:, question:, document_ids:, &block)
+      Rag.tracer.in_span("rag.query", attributes: {
+        "rag.documents.count" => document_ids.size,
+        "rag.question.length" => question.to_s.length,
+        "rag.stream" => true
+      }) do |span|
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        key = cache_key(tenant, question, document_ids)
+        payload = Rails.cache.read(key)
+        cache_hit = !payload.nil?
+
+        if cache_hit
+          block.call(payload[:answer])
+        else
+          retrieval = retrieve(tenant: tenant, question: question, document_ids: document_ids)
+          buffer = +""
+          Rag.tracer.in_span("rag.generate") do
+            @llm.answer_stream(question: question, contexts: retrieval[:contexts]) do |delta|
+              buffer << delta
+              block.call(delta)
+            end
+          end
+          payload = { answer: buffer, sources: retrieval[:sources] }
+          # Cache only a fully streamed answer; a client disconnect raises out of
+          # the block above before we get here, so partial answers are never cached.
+          Rails.cache.write(key, payload, expires_in: CACHE_TTL)
+        end
+
+        latency_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
+        Current.rag.merge!(cache_hit: cache_hit, sources: payload[:sources].size, latency_ms: latency_ms)
+        record_metrics(latency_ms, cache_hit)
+        span.add_attributes(
+          "rag.cache_hit" => cache_hit,
+          "rag.sources.count" => payload[:sources].size,
+          "rag.latency_ms" => latency_ms
+        )
+        payload[:sources]
+      end
+    end
+
+    # Retrieval only (no generation): the building block for the streaming Read
+    # Path, which generates the answer token-by-token after fetching the context.
     # Returns { contexts: [...], sources: [...] }.
     def retrieve(tenant:, question:, document_ids:)
       query_vector = measure(:embed_ms) do

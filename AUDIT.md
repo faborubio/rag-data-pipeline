@@ -159,18 +159,21 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
   `MAX(updated_at)` de los chunks de los documentos. Efecto: variantes triviales de la
   misma pregunta comparten entrada, y re-ingestar un documento **invalida** sus
   respuestas cacheadas (antes podían quedar viejas hasta 1h). Con la clave versionada
-  el TTL ya no es un riesgo de staleness, así que subió a 12h (más hits). Pendiente
-  pensado aparte: el **path de streaming** (`stream=true`) hoy NO pasa por el caché.
+  el TTL ya no es un riesgo de staleness, así que subió a 12h (más hits).
+
+- **Caché también en el path de streaming** — `QueryService#call_streaming` comparte la
+  misma clave y payload que `#call`. En hit reproduce la respuesta guardada en un solo
+  delta (sin embed/search/rerank/LLM); en miss transmite token a token, acumula y la
+  guarda al final (no cachea respuestas parciales si el cliente se desconecta). Una
+  pregunta servida por streaming queda cacheada para la próxima, streamed o no, y
+  viceversa. El controller (`stream_answer`) ya no llama al LLM directo.
 
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
 
-1. **Caché en el path de streaming** — `stream_answer` llama a `retrieve` + LLM directo
-   sin `Rails.cache.fetch`; si la demo usa streaming, el caché no le aplica. Necesita
-   una vuelta (cachear con streaming tiene su matiz). *(diferido a propósito)*
-2. **Generación real con LLM** — el fallback ya es extractivo-enfocado; el salto a
+1. **Generación real con LLM** — el fallback ya es extractivo-enfocado; el salto a
    respuestas generadas requiere proveedor de pago (Gemini con billing / Claude
    Haiku) tras el patrón live/fallback existente.
-3. **Resiliencia de cuota Gemini** — retry con backoff en el embedder ante 429.
-4. **Caché semántica real** — diferida a propósito: el embed (lo que ahorraría) es la
+2. **Resiliencia de cuota Gemini** — retry con backoff en el embedder ante 429.
+3. **Caché semántica real** — diferida a propósito: el embed (lo que ahorraría) es la
    parte barata; el ahorro grande (rerank + LLM) recién vale con LLM de pago, y trae
    riesgo de hit incorrecto. Revisar junto con la generación real.

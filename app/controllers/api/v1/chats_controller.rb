@@ -30,19 +30,20 @@ module Api
       end
 
       def stream_answer(question, document_ids)
-        retrieval = Rag::QueryService.new.retrieve(
-          tenant: current_tenant, question: question, document_ids: document_ids
-        )
-
         response.headers["Content-Type"] = "text/event-stream"
         response.headers["Cache-Control"] = "no-cache"
         response.headers["X-Accel-Buffering"] = "no" # disable proxy buffering (nginx)
         sse = ActionController::Live::SSE.new(response.stream)
 
-        Rag::Llm.new.answer_stream(question: question, contexts: retrieval[:contexts]) do |delta|
+        # Shares the query cache: a repeated question replays the stored answer
+        # (no embed/search/rerank/LLM), and a freshly streamed answer is cached
+        # for the next request — streamed or not.
+        sources = Rag::QueryService.new.call_streaming(
+          tenant: current_tenant, question: question, document_ids: document_ids
+        ) do |delta|
           sse.write({ delta: delta }, event: "token")
         end
-        sse.write({ sources: retrieval[:sources], done: true }, event: "done")
+        sse.write({ sources: sources, done: true }, event: "done")
       rescue ActionController::Live::ClientDisconnected
         # client closed the connection mid-stream; nothing to do
       ensure
