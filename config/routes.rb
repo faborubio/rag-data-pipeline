@@ -19,6 +19,7 @@ Rails.application.routes.draw do
     end
   end
 
-  # Defines the root path route ("/")
-  # root "posts#index"
+  # Visiting the bare domain lands on the public demo page (served from
+  # public/demo.html) instead of a 404.
+  root to: redirect("/demo.html")
 end
