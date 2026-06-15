@@ -1,13 +1,13 @@
 require "test_helper"
 
 class Rag::LlmTest < ActiveSupport::TestCase
-  test "fallback answer is grounded and cites the page" do
+  test "fallback answer is grounded and cites the source inline" do
     answer = Rag::Llm.new(api_key: nil).answer(
       question: "¿Qué hago en caso de incendio?",
       contexts: [ { content: "evacuar por las escaleras", page_number: 12 } ]
     )
 
-    assert_includes answer, "12"
+    assert_includes answer, "[1]", "should cite the source inline"
     assert_includes answer, "evacuar"
   end
 
@@ -35,8 +35,8 @@ class Rag::LlmTest < ActiveSupport::TestCase
       ]
     )
 
-    assert_includes answer, "pág. 3"
-    assert_includes answer, "pág. 4"
+    assert_includes answer, "[1]"
+    assert_includes answer, "[2]"
   end
 
   test "falls back to the full chunk for a purely semantic match" do
@@ -47,6 +47,6 @@ class Rag::LlmTest < ActiveSupport::TestCase
     )
 
     assert_includes answer, "12 semanas"
-    assert_includes answer, "6"
+    assert_includes answer, "[1]"
   end
 end

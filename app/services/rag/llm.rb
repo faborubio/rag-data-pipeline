@@ -90,16 +90,17 @@ module Rag
     def fallback_answer(question, contexts)
       return "No se encontró contexto relevante para responder la pregunta." if contexts.empty?
 
+      # Inline citations: each excerpt is tagged with [n], where n is the source's
+      # 1-based position in the returned sources list, so every claim is traceable.
       query = tokenize(question).to_set
-      excerpts = contexts.first(2).filter_map do |ctx|
+      excerpts = contexts.each_with_index.filter_map do |ctx, i|
         sentence = best_overlapping_sentence(ctx[:content], query)
-        "(pág. #{ctx[:page_number]}) #{sentence}" if sentence
-      end
+        "#{sentence} [#{i + 1}]" if sentence
+      end.first(2)
 
       return "Según la documentación: #{excerpts.join(' ')}" if excerpts.any?
 
-      top = contexts.first
-      "Según la documentación (pág. #{top[:page_number]}): #{top[:content].strip}"
+      "Según la documentación: #{contexts.first[:content].strip} [1]"
     end
 
     # The chunk's sentence with the most query-term overlap; nil if none overlap.
