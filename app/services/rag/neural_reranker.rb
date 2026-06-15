@@ -5,9 +5,10 @@ module Rag
   # load (missing/corrupt download, OOM), so the Read Path degrades instead of
   # breaking.
   class NeuralReranker
-    # English-trained cross-encoder; cross-lingual transfer ranks the Spanish
-    # corpus well. Quantized (int8) keeps the image/RAM footprint ~230MB.
-    MODEL = "mixedbread-ai/mxbai-rerank-base-v1".freeze
+    # Multilingual cross-encoder (XLM-R based): understands Spanish synonyms the
+    # English model missed, so it complements the (also multilingual) Gemini
+    # embeddings instead of demoting their hits.
+    MODEL = "jinaai/jina-reranker-v2-base-multilingual".freeze
 
     def initialize(lexical: Reranker.new)
       @lexical = lexical

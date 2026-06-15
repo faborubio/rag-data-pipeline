@@ -108,18 +108,22 @@ neural ONNX). **Medición con embeddings reales de Gemini** sobre el golden set:
 
 | Config | recall@5 | MRR | keywords |
 |---|---|---|---|
-| Gemini + reranker **léxico** (default) | **1.000** | 0.948 | 0.917 |
-| Gemini + cross-encoder **neural** (`mxbai-rerank-base`, inglés) | 0.958 | 0.958 | 0.958 |
+| Gemini + reranker **léxico** (default) | 1.000 | 0.948 | 0.917 |
+| Gemini + neural **`mxbai-rerank-base`** (inglés) | 0.958 ↓ | 0.958 | 0.958 |
+| Gemini + neural **`jina-reranker-v2-base-multilingual`** | **1.000** | **1.000** | **1.000** |
 
 Con Gemini, el retrieval ya trae el chunk correcto de `rh-008` ("maternidad"→
-"licencia parental") en **rank 1**. El cross-encoder neural es de **inglés** y lo
-**demota fuera del top-5**, bajando recall de 1.0 a 0.958. Por eso el **default es
-el reranker léxico** (preserva el orden de Gemini) y el neural quedó **opt-in**
-(`RERANKER=neural`). **El salto de calidad vino de los embeddings (Gemini), no del
-reranking** en este corpus.
+"licencia parental") en **rank 1**. El cross-encoder **inglés** (mxbai) no entiende
+ese sinónimo español y lo **demota fuera del top-5** (recall 1.0 → 0.958) — *empeora*
+lo que el retrieval acertó. Al cambiar al cross-encoder **multilingüe** (jina v2,
+cuantizado ~267MB) el problema desaparece: entiende maternidad↔parental y deja todo
+en **rank 1** → **1.0/1.0/1.0**.
 
-→ *Acción futura:* enchufar un **reranker multilingüe** (jina/bge multilingüe) tras
-la misma interfaz `rerank` para que la 2ª etapa también ayude en español.
+**Lecciones:** (1) el salto principal vino de los **embeddings** (Gemini); (2) un
+reranker solo ayuda si **habla el idioma del corpus** — uno inglés sobre español es
+net-negativo. `NeuralReranker::MODEL` es ahora jina multilingüe; el reranker sigue
+**opt-in** (`RERANKER=neural`) por su coste (267MB + ~1-2s/consulta en 1 CPU), con
+el léxico como default rápido (que ya logra recall 1.0).
 
 ## Pendiente / próximas auditorías
 

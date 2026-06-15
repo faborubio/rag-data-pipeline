@@ -292,7 +292,7 @@ Cada señal aporta sus 20 mejores candidatos y [`Rag::Rrf`](app/services/rag/rrf
 
 **Segunda etapa — reranking (retrieve-then-rerank).** Los candidatos fusionados (top-10) pasan por un reranker que los re-puntúa por par *(pregunta, pasaje)* antes de cortar a top-5, bajo el span `rag.rerank`. Hay dos detrás de la misma interfaz: un **reranker léxico** determinista (cobertura de términos + proximidad, por defecto) y un **cross-encoder neural** ONNX local ([`informers`](https://github.com/ankane/informers), opt-in con `RERANKER=neural`).
 
-**Lo que midieron los evals (decisión data-driven).** Con embeddings reales de **Gemini**, el retrieval ya es casi perfecto (el chunk de `rh-008`, "maternidad"→"licencia parental", sale en **rank 1**). El cross-encoder neural disponible es de **inglés** (`mxbai-rerank-base`) y *demota* ese único caso español fuera del top-5 — baja recall de **1.0 → 0.958**. Por eso el **default es el reranker léxico** (preserva el orden fuerte de Gemini); el neural queda opt-in, documentado, a la espera de un modelo multilingüe (ver [AUDIT.md](AUDIT.md)). Conclusión honesta: *el salto de calidad vino de los embeddings (Gemini), no del reranking* en este corpus.
+**Lo que midieron los evals (decisión data-driven).** Con embeddings reales de **Gemini** el retrieval ya es casi perfecto. Probando rerankers neuronales: el **inglés** (`mxbai-rerank-base`) *demota* el caso español `rh-008` fuera del top-5 (recall 1.0 → 0.958 — empeora), pero el **multilingüe** (`jina-reranker-v2-base-multilingual`, cuantizado ~267MB) entiende maternidad↔"licencia parental" y deja todo en rank 1 → **1.0/1.0/1.0**. Lección: *un reranker solo ayuda si habla el idioma del corpus*. El cross-encoder neural (jina) queda **opt-in** (`RERANKER=neural`) por su coste (267MB + ~1-2s/consulta en 1 CPU); el **léxico es el default** rápido y ya logra recall 1.0 (ver [AUDIT.md](AUDIT.md)).
 
 ## 📐 Evals de calidad RAG
 
@@ -340,9 +340,9 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Tracing distribuido (OpenTelemetry: auto-instrumentación + spans `rag.*`, exporter OTLP)
 - [x] Evals de calidad RAG (golden dataset + recall@5/MRR/keywords como gate en CI)
 - [x] Búsqueda híbrida (pgvector + full-text en español, fusión con Reciprocal Rank Fusion)
-- [x] Reranking de dos etapas (reranker léxico por defecto + cross-encoder ONNX opt-in)
+- [x] Reranking de dos etapas (léxico por defecto + cross-encoder ONNX **multilingüe** opt-in)
 - [x] Embeddings reales con **Google Gemini** (capa gratuita, multi-proveedor con fallback)
-- [ ] Reranker multilingüe (el cross-encoder inglés actual perjudica el español — ver AUDIT.md)
+- [x] Calidad máxima medida (Gemini + jina multilingüe): **recall/MRR/keywords = 1.0**
 
 ## 📄 Licencia
 
