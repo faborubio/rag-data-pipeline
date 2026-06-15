@@ -229,6 +229,15 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
   pills de latencia/caché por respuesta (el evento SSE `done` lleva `cache_hit`+`latency_ms`),
   chips sugeridos (uno fuera de tema), auto-selección de docs y panel de analítica en vivo.
 
+- **3 features más (desplegadas y verificadas en prod):** **citas inline `[n]`** (la
+  respuesta extractiva referencia cada fuente por su posición; completa trazabilidad junto
+  a abstención+grounding); **formatos TXT/Markdown** (`PlainTextExtractor` + `Rag.extractor_for`
+  por extensión; el upload conserva su extensión real; controller acepta pdf/txt/md);
+  **feedback 👍/👎** (`POST /api/v1/feedback {query_id, rating}`, el query devuelve `query_id`
+  en JSON y en el evento SSE `done`; analítica suma thumbs). También: la clave de caché ahora
+  lleva `CACHE_VERSION` para que cambios de formato de respuesta **se invaliden solos** (un
+  cambio de código quedaba enmascarado por la caché versionada-por-contenido).
+
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
 
 0. **Del audit, menor/cosmético:** `WEB_CONCURRENCY=1` deja Puma en cluster-mode con 1 worker

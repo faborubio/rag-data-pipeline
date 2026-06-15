@@ -348,6 +348,9 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] **Eval de grounding/fidelidad** — métrica en el harness (tokens de la respuesta presentes en el contexto) como gate de CI (min 0.90), para cazar alucinaciones
 - [x] **Analítica por tenant** — `GET /api/v1/analytics`: volumen, tasa de respuesta, cache-hit, preguntas top y vacíos de contenido (abstenciones)
 - [x] **UI de chat enriquecida** — streaming, fuentes, pills de latencia/caché, abstención estilizada, chips sugeridos y panel de analítica en vivo
+- [x] **Citas inline `[n]`** — cada afirmación de la respuesta referencia su fuente numerada (trazabilidad)
+- [x] **Formatos TXT / Markdown** además de PDF (extractor por extensión; el resto del pipeline se reusa)
+- [x] **Feedback 👍/👎** por respuesta (`POST /api/v1/feedback`), reflejado en la analítica
 - [x] **Idempotencia de embeddings** — reuso por `content_hash` + provider; re-ingestar contenido sin cambios no re-embebe (ahorra cuota Gemini)
 - [x] **Chunking estructural** — segmenta por párrafos (con reflow) y secciones (encabezados); no mezcla secciones y solo parte por caracteres lo que excede 500. Evals sin cambios en el corpus limpio; gana robustez con PDFs reales desordenados
 
