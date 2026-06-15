@@ -26,6 +26,8 @@ services:
       RAILS_SERVE_STATIC_FILES: "1"
       SOLID_QUEUE_IN_PUMA: "1"
       WEB_CONCURRENCY: "1"
+      # Real embeddings via Gemini free tier (optional; falls back if unset).
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
     depends_on:
       db:
         condition: service_healthy
