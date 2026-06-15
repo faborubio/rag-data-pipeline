@@ -18,6 +18,8 @@ gem "blind_index"
 # RAG orchestration: semantic chunking + embeddings + LLM (OpenAI via langchainrb)
 gem "langchainrb"
 gem "ruby-openai"
+# Cross-encoder reranking via ONNX Runtime (runs a local model, no API).
+gem "informers"
 
 # Per-tenant API rate limiting
 gem "rack-attack"

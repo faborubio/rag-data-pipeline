@@ -18,4 +18,11 @@ module Rag
   def self.tracer
     OpenTelemetry.tracer_provider.tracer("rag-data-pipeline")
   end
+
+  # Reranker used by the Read Path. Neural cross-encoder by default; set
+  # RERANKER=lexical to force the dependency-free lexical reranker (e.g. to keep
+  # a fast local run from loading the ONNX model).
+  def self.reranker
+    ENV["RERANKER"] == "lexical" ? Reranker.new : NeuralReranker.new
+  end
 end

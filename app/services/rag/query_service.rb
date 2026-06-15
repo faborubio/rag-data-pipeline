@@ -11,12 +11,16 @@ module Rag
     # chunk ranked outside one signal's top-5 can still surface if the other
     # signal ranks it highly.
     CANDIDATE_POOL = 20
+    # Fused candidates fed to the reranker. Bounded (< CANDIDATE_POOL) to cap the
+    # cross-encoder's per-query cost on a single CPU.
+    RERANK_CANDIDATES = 10
 
     Result = Struct.new(:answer, :sources, :latency_ms, keyword_init: true)
 
-    def initialize(embedder: Embedder.new, llm: Llm.new)
+    def initialize(embedder: Embedder.new, llm: Llm.new, reranker: Rag.reranker)
       @embedder = embedder
       @llm = llm
+      @reranker = reranker
     end
 
     def call(tenant:, question:, document_ids:)
@@ -67,7 +71,15 @@ module Rag
             scope.full_text_search(question).limit(CANDIDATE_POOL).to_a
           end
 
-          rows = Rag::Rrf.fuse(vector_hits, text_hits, id: :id).first(TOP_K)
+          fused = Rag::Rrf.fuse(vector_hits, text_hits, id: :id).first(RERANK_CANDIDATES)
+
+          # Second stage: a cross-encoder reads each (question, passage) pair and
+          # reorders, promoting the truly relevant chunk before we cut to TOP_K.
+          reranked = Rag.tracer.in_span("rag.rerank", attributes: { "rag.rerank.candidates" => fused.size }) do
+            @reranker.rerank(question: question, candidates: fused)
+          end
+          rows = reranked.first(TOP_K)
+
           span.add_attributes(
             "rag.vector.count" => vector_hits.size,
             "rag.fulltext.count" => text_hits.size,
