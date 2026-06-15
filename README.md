@@ -345,6 +345,9 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Calidad máxima medida (Gemini + jina multilingüe): **recall/MRR/keywords = 1.0**
 - [x] Respuestas extractivas enfocadas (frase relevante + multi-fuente, sin LLM)
 - [x] **Abstención por confianza** — si el score top del cross-encoder cae bajo el umbral (`RERANK_MIN_SCORE`, def 0.18), responde "No encontré información sobre eso" en vez de inventar (sabe cuándo *no* responder)
+- [x] **Eval de grounding/fidelidad** — métrica en el harness (tokens de la respuesta presentes en el contexto) como gate de CI (min 0.90), para cazar alucinaciones
+- [x] **Analítica por tenant** — `GET /api/v1/analytics`: volumen, tasa de respuesta, cache-hit, preguntas top y vacíos de contenido (abstenciones)
+- [x] **UI de chat enriquecida** — streaming, fuentes, pills de latencia/caché, abstención estilizada, chips sugeridos y panel de analítica en vivo
 - [x] **Idempotencia de embeddings** — reuso por `content_hash` + provider; re-ingestar contenido sin cambios no re-embebe (ahorra cuota Gemini)
 - [x] **Chunking estructural** — segmenta por párrafos (con reflow) y secciones (encabezados); no mezcla secciones y solo parte por caracteres lo que excede 500. Evals sin cambios en el corpus limpio; gana robustez con PDFs reales desordenados
 

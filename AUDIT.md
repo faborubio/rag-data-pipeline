@@ -218,8 +218,16 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
   el **cross-encoder neural sí** (medido: dentro ≥ ~0.20, fuera ≤ ~0.15 — umbral **0.18**,
   `RERANK_MIN_SCORE`). `QueryService` abstiene (devuelve "No encontré información…", sin
   fuentes) en ruta sync y streaming. Validado end-to-end y **en producción** (Gemini +
-  neural): dentro responde, fuera abstiene. *(Idea #1 de 4; faltan #2 grounding eval,
-  #3 UI de chat, #4 analítica de consultas.)*
+  neural): dentro responde, fuera abstiene. *(Idea #1 de 4.)*
+
+- **Las otras 3 ideas (todas desplegadas y verificadas en prod):** **#2 grounding eval** —
+  métrica de fidelidad en el harness (fracción de tokens de la respuesta presentes en el
+  contexto; 1.000 con respuestas extractivas, gate min 0.90 — caza alucinaciones del LLM
+  futuro). **#4 analítica por tenant** — `QueryLog` (1 fila por consulta, best-effort) +
+  `GET /api/v1/analytics` (volumen, tasa de respuesta, cache-hit, top preguntas, vacíos de
+  contenido = abstenciones). **#3 UI** — la demo ahora estila la abstención, muestra
+  pills de latencia/caché por respuesta (el evento SSE `done` lleva `cache_hit`+`latency_ms`),
+  chips sugeridos (uno fuera de tema), auto-selección de docs y panel de analítica en vivo.
 
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
 
