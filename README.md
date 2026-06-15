@@ -5,7 +5,7 @@
 **Pipeline de ingestión RAG (Retrieval-Augmented Generation) de nivel producción** para procesar, fragmentar y vectorizar documentos PDF corporativos a gran escala, con búsqueda semántica de baja latencia y aislamiento estricto por inquilino (*multi-tenancy*).
 
 [![CI](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-76%20passing-22c55e)](test/)
+[![Tests](https://img.shields.io/badge/tests-89%20passing-22c55e)](test/)
 [![Ruby](https://img.shields.io/badge/Ruby-3.3.11-CC342D?logo=ruby&logoColor=white)](.ruby-version)
 [![Rails](https://img.shields.io/badge/Rails-8.1-CC0000?logo=rubyonrails&logoColor=white)](Gemfile)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](config/database.yml)
@@ -28,15 +28,15 @@ El objetivo es demostrar habilidades avanzadas de **ingeniería de datos, concur
 
 ## ✨ Características destacadas
 
-- 🔎 **Búsqueda híbrida**: vectorial (`pgvector` + **HNSW**, coseno) **+ full-text en español** fusionadas con **Reciprocal Rank Fusion**, sin SaaS externo.
+- 🔎 **Búsqueda híbrida + reranking**: vectorial (`pgvector`/**HNSW**) + full-text en español fusionadas con **RRF**, y una 2ª etapa de reranking *(retrieve-then-rerank)*. Embeddings con **Gemini** (gratis) y fallback determinista.
 - 🏢 **Multi-tenancy** con aislamiento estricto por `tenant_id` en cada consulta.
 - 🔐 **API keys cifradas en reposo** (Lockbox) con búsqueda por *blind index*.
 - ⚙️ **Pipeline de ingestión asíncrono** (Solid Queue): `pdftotext` → chunking → embeddings por lotes, con reintentos y *circuit breaker*.
 - 💬 **Respuestas en streaming (SSE)** token por token, citando documento y página.
 - 🚦 **Rate limiting por tenant** (rack-attack) y **caché distribuida** (Solid Cache sobre PostgreSQL).
 - 📈 **Observabilidad (3 pilares)**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics` + **tracing distribuido OpenTelemetry** (spans `rag.*`, exporter OTLP).
-- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 76 tests.
-- 📐 **Evals de calidad RAG**: golden dataset + recall@5/MRR/keywords como **gate en CI** (mejora medida: +10 pts MRR con búsqueda híbrida).
+- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 89 tests.
+- 📐 **Evals de calidad RAG**: golden dataset + recall@5/MRR/keywords como **gate en CI** (con embeddings reales de Gemini: **recall 1.0**).
 
 ## 🏗️ Arquitectura
 
@@ -209,9 +209,13 @@ bin/dev
 
 | Variable | Descripción |
 |----------|-------------|
-| `OPENAI_API_KEY` | Habilita embeddings y respuestas reales con OpenAI. **Sin ella, el sistema usa fallbacks deterministas** para que todo el pipeline funcione localmente sin secretos. |
+| `GEMINI_API_KEY` | Embeddings reales con **Google Gemini** (`gemini-embedding-001`, capa gratuita). Es el proveedor preferido; al activarla, **re-indexa el corpus** con `bin/rails rag:reembed`. |
+| `OPENAI_API_KEY` | Embeddings y respuestas con OpenAI (alternativa). **Sin ningún proveedor, el sistema usa fallbacks deterministas** para que todo el pipeline funcione localmente sin secretos. |
+| `RERANKER` | `neural` activa el cross-encoder ONNX local (opt-in); por defecto, reranker léxico (ver sección de búsqueda). |
 | `LOCKBOX_MASTER_KEY` / `BLIND_INDEX_MASTER_KEY` | Alternativa a las credenciales de Rails para entornos en contenedor. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Activa el envío de trazas OpenTelemetry vía OTLP al colector/backend indicado (Jaeger, Grafana Tempo, Honeycomb…). Sin ella no se exporta nada (en desarrollo se imprime en consola). |
+
+**Prioridad de proveedor de embeddings:** `GEMINI_API_KEY` → `OPENAI_API_KEY` → fallback determinista (bag-of-words). Los tres producen vectores de **1536 dims** (Gemini vía `outputDimensionality`), así que no hay migración de esquema al cambiar.
 
 ## 🧪 Crear un tenant y probar
 
@@ -286,17 +290,21 @@ El Read Path no se queda en similitud vectorial: fusiona **dos señales compleme
 
 Cada señal aporta sus 20 mejores candidatos y [`Rag::Rrf`](app/services/rag/rrf.rb) los fusiona por `1/(k+rank)` (k=60), sin necesidad de normalizar escalas heterogéneas (distancia coseno vs. `ts_rank`). Todo dentro de Postgres — coherente con la arquitectura *single-database* — con sub-spans OTel `rag.search.vector` y `rag.search.fulltext` para ver el peso de cada una. El full-text usa un índice **GIN** sobre `to_tsvector('spanish', immutable_unaccent(content))` y semántica **OR** rankeada (una pregunta en lenguaje natural rara vez contiene todos los términos literales).
 
-El impacto está medido por los evals (tabla abajo): las preguntas con vocabulario divergente que solo-vector rankeaba mal o perdía, el híbrido las sube a rank 1. La única que aún falla (`rh-008`: "maternidad" → "licencia parental", sin solapamiento léxico) marca el siguiente paso natural: embeddings semánticos reales + reranking.
+**Segunda etapa — reranking (retrieve-then-rerank).** Los candidatos fusionados (top-10) pasan por un reranker que los re-puntúa por par *(pregunta, pasaje)* antes de cortar a top-5, bajo el span `rag.rerank`. Hay dos detrás de la misma interfaz: un **reranker léxico** determinista (cobertura de términos + proximidad, por defecto) y un **cross-encoder neural** ONNX local ([`informers`](https://github.com/ankane/informers), opt-in con `RERANKER=neural`).
+
+**Lo que midieron los evals (decisión data-driven).** Con embeddings reales de **Gemini**, el retrieval ya es casi perfecto (el chunk de `rh-008`, "maternidad"→"licencia parental", sale en **rank 1**). El cross-encoder neural disponible es de **inglés** (`mxbai-rerank-base`) y *demota* ese único caso español fuera del top-5 — baja recall de **1.0 → 0.958**. Por eso el **default es el reranker léxico** (preserva el orden fuerte de Gemini); el neural queda opt-in, documentado, a la espera de un modelo multilingüe (ver [AUDIT.md](AUDIT.md)). Conclusión honesta: *el salto de calidad vino de los embeddings (Gemini), no del reranking* en este corpus.
 
 ## 📐 Evals de calidad RAG
 
 La suite de tests verifica *corrección*; los **evals** verifican *calidad de retrieval y respuesta* — y **bloquean CI si regresa**. Un golden dataset versionado ([`config/evals/golden_set.yml`](config/evals/golden_set.yml)) define 3 manuales sintéticos (~21 páginas) y 24 preguntas con páginas y keywords esperadas. El runner ([`Rag::Evals::Runner`](app/services/rag/evals/runner.rb)) ingiere el corpus por el **pipeline real** (PDF → `pdftotext` → chunking → embeddings → pgvector) y mide cada pregunta vía `Rag::QueryService`:
 
-| Métrica | Qué mide | Solo vector | **Híbrido** |
-|---|---|---|---|
-| **Recall@5** | ¿La página correcta del documento correcto aparece en las fuentes? | 0.917 | **0.958** |
-| **MRR** | ¿En qué posición del ranking aparece? | 0.826 | **0.927** |
-| **Keyword presence** | ¿La respuesta contiene los datos esperados? | 0.750 | **0.917** |
+| Métrica | Qué mide | Solo vector (BoW) | Híbrido (BoW) | **Híbrido + Gemini** |
+|---|---|---|---|---|
+| **Recall@5** | ¿La página correcta del documento correcto aparece en las fuentes? | 0.917 | 0.958 | **1.000** |
+| **MRR** | ¿En qué posición del ranking aparece? | 0.826 | 0.927 | **0.948** |
+| **Keyword presence** | ¿La respuesta contiene los datos esperados? | 0.750 | 0.917 | **0.917** |
+
+Las dos primeras columnas son el tier **sin secretos** (embeddings bag-of-words deterministas), que es lo que mide CI. La tercera es con **embeddings reales de Gemini** (capa gratuita) + reranker léxico — **recall perfecto** (cierra `rh-008`); reproducible local con `GEMINI_API_KEY=... bin/rails rag:evals`. El gate de CI usa el tier sin secretos para mantenerse determinista y verde.
 
 Las columnas son el mismo golden set antes y después de la **búsqueda híbrida** (ver abajo): el harness no solo verifica calidad, **demuestra la mejora con números** (+10 pts de MRR, +17 de keyword presence). Los umbrales del gate están fijados bajo el baseline híbrido, así que una regresión a solo-vector haría fallar CI.
 
@@ -323,7 +331,7 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Pipeline de ingestión asíncrono
 - [x] Endpoint de consulta RAG (Read Path)
 - [x] Autenticación por tenant
-- [x] Suite de tests automatizados (Minitest, 76 tests)
+- [x] Suite de tests automatizados (Minitest, 89 tests)
 - [x] Rate limiting por tenant (rack-attack)
 - [x] Streaming de respuestas (SSE)
 - [x] Worker de Solid Queue (proceso `bin/jobs` / embebido en Puma)
@@ -332,7 +340,9 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Tracing distribuido (OpenTelemetry: auto-instrumentación + spans `rag.*`, exporter OTLP)
 - [x] Evals de calidad RAG (golden dataset + recall@5/MRR/keywords como gate en CI)
 - [x] Búsqueda híbrida (pgvector + full-text en español, fusión con Reciprocal Rank Fusion)
-- [ ] Reranking con cross-encoder sobre los candidatos fusionados
+- [x] Reranking de dos etapas (reranker léxico por defecto + cross-encoder ONNX opt-in)
+- [x] Embeddings reales con **Google Gemini** (capa gratuita, multi-proveedor con fallback)
+- [ ] Reranker multilingüe (el cross-encoder inglés actual perjudica el español — ver AUDIT.md)
 
 ## 📄 Licencia
 

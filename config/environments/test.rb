@@ -6,13 +6,6 @@
 Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
 
-  # Default the reranker to the deterministic lexical one in tests/CI: without
-  # provider keys the first stage retrieves with the BoW fallback, so the heavy
-  # neural cross-encoder adds no measurable signal here — only download/runtime
-  # cost. Neural stays the production default; measure it locally with a real
-  # embedder via `GEMINI_API_KEY=... bin/rails rag:evals`.
-  ENV["RERANKER"] ||= "lexical"
-
   # While tests run files are not watched, reloading is not necessary.
   config.enable_reloading = false
 

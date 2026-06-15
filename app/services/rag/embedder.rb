@@ -1,15 +1,22 @@
 require "digest"
+require "net/http"
+require "json"
 
 module Rag
-  # Turns texts into 1536-dim embeddings. Uses OpenAI (text-embedding-3-small)
-  # in batches of 20 to minimize network calls (spec), guarded by a circuit
-  # breaker. With no OPENAI_API_KEY it returns deterministic pseudo-embeddings
-  # so the whole pipeline runs locally without external dependencies.
+  # Turns texts into 1536-dim embeddings, in batches of 20 to minimize network
+  # calls (spec), guarded by a circuit breaker. Provider is chosen by which key
+  # is present: Gemini (free tier, gemini-embedding-001) > OpenAI > a
+  # deterministic bag-of-words fallback so the pipeline (and the CI evals) run
+  # locally with no external dependency at all.
   class Embedder
     BATCH_SIZE = 20
+    GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/" \
+                      "#{Rag::GEMINI_EMBEDDING_MODEL}:batchEmbedContents".freeze
 
-    def initialize(api_key: ENV["OPENAI_API_KEY"], breaker: Rag.embedding_breaker)
-      @api_key = api_key
+    def initialize(gemini_key: ENV["GEMINI_API_KEY"], api_key: ENV["OPENAI_API_KEY"],
+                   breaker: Rag.embedding_breaker)
+      @gemini_key = gemini_key.presence
+      @api_key = api_key.presence
       @breaker = breaker
     end
 
@@ -23,17 +30,52 @@ module Rag
     end
 
     def live?
-      @api_key.present?
+      @gemini_key.present? || @api_key.present?
+    end
+
+    # Which backend a query will actually use — surfaced by the evals report.
+    def provider
+      return :gemini if @gemini_key.present?
+      return :openai if @api_key.present?
+
+      :fallback
     end
 
     private
 
     def embed_batch(batch)
-      if live?
-        @breaker.run { openai_embeddings(batch) }
-      else
-        batch.map { |text| fake_embedding(text) }
+      case provider
+      when :gemini then @breaker.run { gemini_embeddings(batch) }
+      when :openai then @breaker.run { openai_embeddings(batch) }
+      else batch.map { |text| fake_embedding(text) }
       end
+    end
+
+    # One batched call to Gemini; outputDimensionality pins the result to 1536.
+    def gemini_embeddings(batch)
+      requests = batch.map do |text|
+        { model: "models/#{Rag::GEMINI_EMBEDDING_MODEL}",
+          content: { parts: [ { text: text } ] },
+          outputDimensionality: Rag::EMBEDDING_DIMENSIONS }
+      end
+      body = post_json(GEMINI_ENDPOINT, { "x-goog-api-key" => @gemini_key }, { requests: requests })
+      body.fetch("embeddings").map { |row| normalize_l2(row.fetch("values")) }
+    end
+
+    def post_json(url, headers, payload)
+      uri = URI(url)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.open_timeout = 10
+      http.read_timeout = 30
+      request = Net::HTTP::Post.new(uri)
+      headers.each { |k, v| request[k] = v }
+      request["Content-Type"] = "application/json"
+      request.body = payload.to_json
+      response = http.request(request)
+      raise "Gemini API #{response.code}: #{response.body.to_s[0, 200]}" unless response.code.to_i == 200
+
+      JSON.parse(response.body)
     end
 
     # One network call for up to BATCH_SIZE inputs.

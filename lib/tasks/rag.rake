@@ -1,4 +1,20 @@
 namespace :rag do
+  desc "Re-embed every stored chunk with the current embedder (run after switching provider)"
+  task reembed: :environment do
+    embedder = Rag::Embedder.new
+    puts "Re-embedding with provider: #{embedder.provider}"
+    total = DocumentChunk.count
+    done = 0
+    DocumentChunk.in_batches(of: Rag::Embedder::BATCH_SIZE) do |batch|
+      chunks = batch.to_a
+      vectors = embedder.embed(chunks.map(&:content))
+      chunks.each_with_index { |chunk, i| chunk.update_column(:embedding, vectors[i]) }
+      done += chunks.size
+      puts "  #{done}/#{total}"
+    end
+    puts "Done."
+  end
+
   desc "Run RAG quality evals (recall@k, MRR, keyword presence) against the golden set"
   task evals: :environment do
     report = nil
@@ -9,10 +25,10 @@ namespace :rag do
     end
 
     thresholds = Rag::Evals::Runner::THRESHOLDS
-    tier = Rag::Embedder.new.live? ? "live (OpenAI)" : "fallback (lexical, deterministic)"
+    reranker = ENV["RERANKER"] == "neural" ? "neural" : "lexical"
 
     puts
-    puts "RAG quality evals — tier: #{tier} — k=#{report.k}"
+    puts "RAG quality evals — embeddings: #{Rag::Embedder.new.provider} — reranker: #{reranker} — k=#{report.k}"
     puts format("%-8s %-4s %-5s %-5s %s", "ID", "HIT", "RANK", "KW", "QUESTION")
     puts "-" * 78
     report.rows.each do |row|

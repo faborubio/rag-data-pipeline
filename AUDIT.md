@@ -101,11 +101,32 @@ Detalle en [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ---
 
+## Hallazgo: el cross-encoder neural inglés perjudica el español (2026-06-14)
+
+Se implementó *retrieve-then-rerank* con dos rerankers (léxico + cross-encoder
+neural ONNX). **Medición con embeddings reales de Gemini** sobre el golden set:
+
+| Config | recall@5 | MRR | keywords |
+|---|---|---|---|
+| Gemini + reranker **léxico** (default) | **1.000** | 0.948 | 0.917 |
+| Gemini + cross-encoder **neural** (`mxbai-rerank-base`, inglés) | 0.958 | 0.958 | 0.958 |
+
+Con Gemini, el retrieval ya trae el chunk correcto de `rh-008` ("maternidad"→
+"licencia parental") en **rank 1**. El cross-encoder neural es de **inglés** y lo
+**demota fuera del top-5**, bajando recall de 1.0 a 0.958. Por eso el **default es
+el reranker léxico** (preserva el orden de Gemini) y el neural quedó **opt-in**
+(`RERANKER=neural`). **El salto de calidad vino de los embeddings (Gemini), no del
+reranking** en este corpus.
+
+→ *Acción futura:* enchufar un **reranker multilingüe** (jina/bge multilingüe) tras
+la misma interfaz `rerank` para que la 2ª etapa también ayude en español.
+
 ## Pendiente / próximas auditorías
 
+- **Respuestas reales del LLM:** hoy en fallback extractivo (Gemini tiene la
+  generación bloqueada en capa gratuita; OpenAI/Claude requieren billing). Evaluar
+  cuando haya un proveedor de generación gratuito o presupuesto.
 - **Caché semántica real** (similitud de embedding sobre umbral) — feature, no fix.
 - **Búsqueda híbrida en paralelo:** hoy las ramas vector y full-text corren en
   secuencia; podrían concurrir, pero con el pool de conexiones de AR no compensa a
-  esta escala. Revisar si la latencia se vuelve un problema.
-- **Reranking con cross-encoder** sobre los candidatos fusionados (siguiente paso del
-  roadmap) — atacaría la única pregunta del golden set que aún falla.
+  esta escala.

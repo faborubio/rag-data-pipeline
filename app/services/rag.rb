@@ -1,8 +1,11 @@
 # Namespace + shared, process-local circuit breakers for the external AI calls.
 module Rag
-  # 1536 dims, OpenAI text-embedding-3-small (per spec).
+  # 1536 dims. OpenAI text-embedding-3-small (per spec) is native 1536; Gemini
+  # gemini-embedding-001 is asked for 1536 via outputDimensionality, so either
+  # provider fits the existing vector(1536) column with no migration.
   EMBEDDING_DIMENSIONS = 1536
   EMBEDDING_MODEL = "text-embedding-3-small".freeze
+  GEMINI_EMBEDDING_MODEL = "gemini-embedding-001".freeze
   CHAT_MODEL = "gpt-4o-mini".freeze
 
   def self.embedding_breaker
@@ -19,10 +22,13 @@ module Rag
     OpenTelemetry.tracer_provider.tracer("rag-data-pipeline")
   end
 
-  # Reranker used by the Read Path. Neural cross-encoder by default; set
-  # RERANKER=lexical to force the dependency-free lexical reranker (e.g. to keep
-  # a fast local run from loading the ONNX model).
+  # Reranker used by the Read Path. The deterministic lexical reranker is the
+  # default: measured against real Gemini embeddings it preserves the strong
+  # retrieval order (recall@5 1.0), whereas the English neural cross-encoder
+  # demotes the one hard Spanish semantic match out of the top-5. The neural
+  # cross-encoder stays available opt-in (RERANKER=neural) pending a
+  # multilingual model. See AUDIT.md.
   def self.reranker
-    ENV["RERANKER"] == "lexical" ? Reranker.new : NeuralReranker.new
+    ENV["RERANKER"] == "neural" ? NeuralReranker.new : Reranker.new
   end
 end
