@@ -1,6 +1,13 @@
 require "test_helper"
 
 class Rag::QueryServiceTest < ActiveSupport::TestCase
+  # Reranker stub with a fixed top score, to drive the confidence gate.
+  class FixedScoreReranker
+    def initialize(score) = (@score = score)
+    def rerank(question:, candidates:) = candidates.map { |c| [ c, @score ] }
+    def confident?(score) = score >= Rag::NeuralReranker::MIN_RELEVANT_SCORE
+  end
+
   setup do
     @tenant = Tenant.create!(name: "Acme")
     @document = @tenant.documents.create!(filename: "manual.pdf", status: :completed)
@@ -25,6 +32,31 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
     assert source.key?(:page)
     assert source.key?(:text_snippet)
     assert_kind_of Integer, result.latency_ms
+  end
+
+  test "abstains (no sources) when reranker confidence is below the threshold" do
+    svc = Rag::QueryService.new(reranker: FixedScoreReranker.new(0.05))
+    result = svc.call(tenant: @tenant, question: "¿cuál es la capital de Francia?", document_ids: [ @document.id ])
+
+    assert_equal Rag::QueryService::NO_ANSWER, result.answer
+    assert_empty result.sources, "must not cite irrelevant pages when abstaining"
+  end
+
+  test "answers normally when reranker confidence is above the threshold" do
+    svc = Rag::QueryService.new(reranker: FixedScoreReranker.new(0.9))
+    result = svc.call(tenant: @tenant, question: "¿incendio?", document_ids: [ @document.id ])
+
+    refute_equal Rag::QueryService::NO_ANSWER, result.answer
+    assert_operator result.sources.size, :>=, 1
+  end
+
+  test "the streaming path also abstains when confidence is low" do
+    svc = Rag::QueryService.new(reranker: FixedScoreReranker.new(0.05))
+    streamed = +""
+    sources = svc.call_streaming(tenant: @tenant, question: "¿fotosíntesis?", document_ids: [ @document.id ]) { |d| streamed << d }
+
+    assert_equal Rag::QueryService::NO_ANSWER, streamed
+    assert_empty sources
   end
 
   test "enforces strict tenant isolation" do

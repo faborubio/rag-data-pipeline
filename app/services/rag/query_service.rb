@@ -19,6 +19,9 @@ module Rag
     # 12h favours hit rate for rarely-changing manuals; entries left behind by a
     # re-ingest age out on their own.
     CACHE_TTL = 12.hours
+    # Returned instead of a generated answer when retrieval isn't confident the
+    # corpus actually covers the question — abstaining beats inventing.
+    NO_ANSWER = "No encontré información sobre eso en los documentos consultados.".freeze
 
     Result = Struct.new(:answer, :sources, :latency_ms, keyword_init: true)
 
@@ -73,14 +76,20 @@ module Rag
           block.call(payload[:answer])
         else
           retrieval = retrieve(tenant: tenant, question: question, document_ids: document_ids)
-          buffer = +""
-          Rag.tracer.in_span("rag.generate") do
-            @llm.answer_stream(question: question, contexts: retrieval[:contexts]) do |delta|
-              buffer << delta
-              block.call(delta)
+          if retrieval[:confident]
+            buffer = +""
+            Rag.tracer.in_span("rag.generate") do
+              @llm.answer_stream(question: question, contexts: retrieval[:contexts]) do |delta|
+                buffer << delta
+                block.call(delta)
+              end
             end
+            payload = { answer: buffer, sources: retrieval[:sources] }
+          else
+            # Off-topic for this corpus: abstain instead of inventing an answer.
+            block.call(NO_ANSWER)
+            payload = { answer: NO_ANSWER, sources: [] }
           end
-          payload = { answer: buffer, sources: retrieval[:sources] }
           # Cache only a fully streamed answer; a client disconnect raises out of
           # the block above before we get here, so partial answers are never cached.
           Rails.cache.write(key, payload, expires_in: CACHE_TTL)
@@ -100,7 +109,8 @@ module Rag
 
     # Retrieval only (no generation): the building block for the streaming Read
     # Path, which generates the answer token-by-token after fetching the context.
-    # Returns { contexts: [...], sources: [...] }.
+    # Returns { contexts:, sources:, confident:, score: } — `confident` is false
+    # when the top reranker score says nothing in the corpus is relevant.
     def retrieve(tenant:, question:, document_ids:)
       query_vector = measure(:embed_ms) do
         Rag.tracer.in_span("rag.embed") { @embedder.embed_one(question) }
@@ -109,6 +119,7 @@ module Rag
       # Hybrid retrieval: fuse dense (cosine) and lexical (full-text) candidates
       # with Reciprocal Rank Fusion. Vector search handles paraphrase/semantics;
       # full-text nails exact terms, codes and names the embedding may miss.
+      top_score = 0.0
       chunks = measure(:search_ms) do
         Rag.tracer.in_span("rag.search", attributes: { "rag.top_k" => TOP_K }) do |span|
           scope = DocumentChunk.for_tenant(tenant).where(document_id: document_ids)
@@ -123,21 +134,27 @@ module Rag
 
           fused = Rag::Rrf.fuse(vector_hits, text_hits, id: :id).first(RERANK_CANDIDATES)
 
-          # Second stage: a cross-encoder reads each (question, passage) pair and
-          # reorders, promoting the truly relevant chunk before we cut to TOP_K.
+          # Second stage: a cross-encoder scores each (question, passage) pair and
+          # reorders. The top score doubles as a relevance signal: too low and we
+          # abstain instead of answering from irrelevant chunks.
           reranked = Rag.tracer.in_span("rag.rerank", attributes: { "rag.rerank.candidates" => fused.size }) do
             @reranker.rerank(question: question, candidates: fused)
           end
-          rows = reranked.first(TOP_K)
+          top_score = reranked.first&.last.to_f
+          rows = reranked.first(TOP_K).map(&:first)
 
           span.add_attributes(
             "rag.vector.count" => vector_hits.size,
             "rag.fulltext.count" => text_hits.size,
-            "rag.chunks.count" => rows.size
+            "rag.chunks.count" => rows.size,
+            "rag.rerank.top_score" => top_score
           )
           rows
         end
       end
+
+      confident = @reranker.confident?(top_score)
+      Current.rag.merge!(confident: confident, rerank_score: top_score)
 
       contexts = chunks.map do |chunk|
         { content: chunk.content, page_number: chunk.page_number, document_id: chunk.document_id }
@@ -146,13 +163,15 @@ module Rag
         { document_id: c[:document_id], page: c[:page_number], text_snippet: snippet(c[:content]) }
       end
 
-      { contexts: contexts, sources: sources }
+      { contexts: contexts, sources: sources, confident: confident, score: top_score }
     end
 
     private
 
     def retrieve_and_generate(tenant, question, document_ids)
       retrieval = retrieve(tenant: tenant, question: question, document_ids: document_ids)
+      return { answer: NO_ANSWER, sources: [] } unless retrieval[:confident]
+
       answer = Rag.tracer.in_span("rag.generate") do
         @llm.answer(question: question, contexts: retrieval[:contexts])
       end

@@ -9,18 +9,23 @@ module Rag
     BIGRAM_WEIGHT = 0.25
 
     # candidates: Array of DocumentChunk (responds to #content). Returns the same
-    # objects, reordered best-first.
+    # objects as [ [chunk, score], ... ], reordered best-first (stable on ties).
     def rerank(question:, candidates:)
       query = tokenize(question)
-      return candidates if query.empty?
+      return candidates.map { |chunk| [ chunk, 0.0 ] } if query.empty?
 
       query_set = query.to_set
       query_bigrams = query.each_cons(2).to_a
 
-      candidates.each_with_index
-                .sort_by { |chunk, i| [ -score(chunk, query_set, query_bigrams), i ] }
-                .map(&:first)
+      candidates
+        .map { |chunk| [ chunk, score(chunk, query_set, query_bigrams) ] }
+        .sort_by.with_index { |(_chunk, s), i| [ -s, i ] }
     end
+
+    # The lexical signal can't tell an off-topic passage that merely shares
+    # stopwords from a real match (measured: out-of-scope questions score as high
+    # as in-scope), so it never gates answering — that is NeuralReranker's job.
+    def confident?(_top_score) = true
 
     private
 

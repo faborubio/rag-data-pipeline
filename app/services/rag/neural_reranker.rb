@@ -10,21 +10,30 @@ module Rag
     # embeddings instead of demoting their hits.
     MODEL = "jinaai/jina-reranker-v2-base-multilingual".freeze
 
+    # Below this top cross-encoder score, nothing in the corpus is actually
+    # relevant to the question, so the Read Path abstains instead of inventing an
+    # answer. Measured on a real corpus (in-scope >= ~0.20, off-topic <= ~0.15,
+    # incl. tricky lexical collisions like "mundial"); tune with RERANK_MIN_SCORE.
+    MIN_RELEVANT_SCORE = (ENV["RERANK_MIN_SCORE"] || 0.18).to_f
+
     def initialize(lexical: Reranker.new)
       @lexical = lexical
     end
 
-    # candidates: Array of DocumentChunk (responds to #content). Returns the same
-    # objects reordered best-first by cross-encoder relevance.
+    # candidates: Array of DocumentChunk (responds to #content). Returns
+    # [ [chunk, score], ... ] reordered best-first by cross-encoder relevance.
     def rerank(question:, candidates:)
-      return candidates if candidates.empty?
+      return [] if candidates.empty?
 
       ranked = self.class.pipeline.call(question, candidates.map(&:content))
-      ranked.map { |row| candidates[row[:doc_id]] }
+      ranked.map { |row| [ candidates[row[:doc_id]], row[:score].to_f ] }
     rescue StandardError => e
       Rails.logger.warn("[NeuralReranker] falling back to lexical: #{e.class}: #{e.message}")
       @lexical.rerank(question: question, candidates: candidates)
     end
+
+    # A low top score means the question is off-topic for this corpus → gate it.
+    def confident?(top_score) = top_score >= MIN_RELEVANT_SCORE
 
     # Loaded once per process — the model is ~230MB and slow to initialize.
     def self.pipeline
