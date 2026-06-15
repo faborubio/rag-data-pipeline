@@ -11,6 +11,13 @@ fabianragpipeline.duckdns.org {
 		Referrer-Policy "strict-origin-when-cross-origin"
 	}
 
+	# Reject oversized uploads at the edge so a huge body can't be streamed to
+	# disk before the app's own size check runs. Kept just above the app limit
+	# (MAX_UPLOAD_MB, default 160MB) so legit uploads still get the friendly 422.
+	request_body {
+		max_size 170MB
+	}
+
 	# Prometheus metrics are for the internal scraper only — not the public
 	# internet. Scrape from inside the VPS (e.g. docker exec / host curl to the
 	# web container) or whitelist the monitoring host here if one is added.
