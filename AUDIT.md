@@ -135,14 +135,42 @@ keywords = 1.0**. Demo solo-lectura, 1 documento (`manual-seguridad-rag.pdf`).
 Latencia ~1.4s en caliente. Hallazgo operativo: el **free tier de Gemini limita la
 indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
 
+## Hecho desde la última auditoría
+
+- **Idempotencia de embeddings** — `document_chunks` lleva `content_hash` (SHA256
+  del contenido) + `embedding_provider`. El ingestor reusa vectores ya guardados
+  para contenido idéntico del **mismo** provider y solo embebe lo nuevo; re-ingestar
+  un documento sin cambios es un único SELECT con cero llamadas al embedder. No se
+  mezclan espacios de distintos providers (la clave incluye el provider; las filas
+  viejas con provenance NULL nunca se reusan hasta re-embeberse).
+
+- **Chunking estructural** — el `SemanticChunker` segmenta por párrafos (con reflow
+  de líneas cortadas por `pdftotext -layout`) y secciones (encabezados tipo
+  "Artículo 5", "Capítulo II", "1.2"), empaca bloques hasta ~500 chars **sin** cruzar
+  el inicio de una sección, y solo parte con langchain (preservando overlap) cuando un
+  bloque solo excede el límite. Cada chunk queda semánticamente coherente. Medido: en
+  el corpus limpio de la demo los evals no cambian (recall 0.958 / MRR 0.906 /
+  keywords 0.833, idénticos al baseline) — la ganancia es robustez con PDFs reales
+  desordenados.
+
+- **Caché de consultas endurecida** — la clave ahora se versiona por contenido:
+  `cache_key` normaliza la pregunta (minúsculas, espacios, puntuación de los extremos;
+  **sin** quitar acentos para no cambiar significado en español) y le suma
+  `MAX(updated_at)` de los chunks de los documentos. Efecto: variantes triviales de la
+  misma pregunta comparten entrada, y re-ingestar un documento **invalida** sus
+  respuestas cacheadas (antes podían quedar viejas hasta 1h). Con la clave versionada
+  el TTL ya no es un riesgo de staleness, así que subió a 12h (más hits). Pendiente
+  pensado aparte: el **path de streaming** (`stream=true`) hoy NO pasa por el caché.
+
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
 
-1. **Idempotencia de embeddings** *(rápido, gratis)* — hash de contenido para no
-   re-embeber chunks sin cambios; ahorra el recurso más caro (cuota Gemini).
-2. **Chunking estructural** *(gratis)* — cortar por párrafos/secciones reales; rinde
-   con PDFs reales grandes (el corpus actual ya es limpio). Medir con evals.
-3. **Generación real con LLM** — el fallback ya es extractivo-enfocado; el salto a
+1. **Caché en el path de streaming** — `stream_answer` llama a `retrieve` + LLM directo
+   sin `Rails.cache.fetch`; si la demo usa streaming, el caché no le aplica. Necesita
+   una vuelta (cachear con streaming tiene su matiz). *(diferido a propósito)*
+2. **Generación real con LLM** — el fallback ya es extractivo-enfocado; el salto a
    respuestas generadas requiere proveedor de pago (Gemini con billing / Claude
    Haiku) tras el patrón live/fallback existente.
-4. **Resiliencia de cuota Gemini** — retry con backoff en el embedder ante 429.
-5. **Caché semántica real** y **búsqueda híbrida en paralelo** — features, no fixes.
+3. **Resiliencia de cuota Gemini** — retry con backoff en el embedder ante 429.
+4. **Caché semántica real** — diferida a propósito: el embed (lo que ahorraría) es la
+   parte barata; el ahorro grande (rerank + LLM) recién vale con LLM de pago, y trae
+   riesgo de hit incorrecto. Revisar junto con la generación real.

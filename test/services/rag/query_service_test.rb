@@ -80,4 +80,44 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
     Rails.cache = original_cache
     Current.reset
   end
+
+  test "trivial wording variants (case, punctuation, spaces) share a cache entry" do
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+    svc = Rag::QueryService.new(reranker: Rag::Reranker.new)
+
+    Current.reset
+    svc.call(tenant: @tenant, question: "¿Incendio?", document_ids: [ @document.id ])
+    assert_equal false, Current.rag[:cache_hit], "first call is a miss"
+
+    Current.reset
+    svc.call(tenant: @tenant, question: "  incendio ", document_ids: [ @document.id ])
+    assert_equal true, Current.rag[:cache_hit], "a case/punctuation/space variant should hit"
+  ensure
+    Rails.cache = original_cache
+    Current.reset
+  end
+
+  test "re-ingesting a document busts its cached answers" do
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+    svc = Rag::QueryService.new(reranker: Rag::Reranker.new)
+
+    Current.reset
+    svc.call(tenant: @tenant, question: "incendio", document_ids: [ @document.id ])
+
+    Current.reset
+    svc.call(tenant: @tenant, question: "incendio", document_ids: [ @document.id ])
+    assert_equal true, Current.rag[:cache_hit], "unchanged content stays cached"
+
+    # Simulate a re-ingest: chunks are rebuilt with fresh timestamps.
+    @document.document_chunks.update_all(updated_at: 1.minute.from_now)
+
+    Current.reset
+    svc.call(tenant: @tenant, question: "incendio", document_ids: [ @document.id ])
+    assert_equal false, Current.rag[:cache_hit], "changed content must invalidate the cache"
+  ensure
+    Rails.cache = original_cache
+    Current.reset
+  end
 end

@@ -14,6 +14,11 @@ module Rag
     # Fused candidates fed to the reranker. Bounded (< CANDIDATE_POOL) to cap the
     # cross-encoder's per-query cost on a single CPU.
     RERANK_CANDIDATES = 10
+    # Cache TTL. The key is content-versioned (see cache_key), so a cached answer
+    # can never go stale — this is purely a memory knob to evict cold entries.
+    # 12h favours hit rate for rarely-changing manuals; entries left behind by a
+    # re-ingest age out on their own.
+    CACHE_TTL = 12.hours
 
     Result = Struct.new(:answer, :sources, :latency_ms, keyword_init: true)
 
@@ -31,7 +36,7 @@ module Rag
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         cache_hit = true
 
-        payload = Rails.cache.fetch(cache_key(tenant, question, document_ids), expires_in: 1.hour) do
+        payload = Rails.cache.fetch(cache_key(tenant, question, document_ids), expires_in: CACHE_TTL) do
           cache_hit = false
           retrieve_and_generate(tenant, question, document_ids)
         end
@@ -131,9 +136,37 @@ module Rag
       text.length > length ? "#{text[0, length]}..." : text
     end
 
+    # Versioned cache key, scoped by tenant for isolation. The digest folds in:
+    #   - a normalized question, so trivial wording variants (case, surrounding
+    #     punctuation, extra whitespace) share one entry instead of redoing work;
+    #   - the content version of the queried documents, so re-ingesting a document
+    #     invalidates its cached answers instead of serving a stale one for the
+    #     whole TTL.
     def cache_key(tenant, question, document_ids)
-      digest = Digest::SHA256.hexdigest([ question, Array(document_ids).map(&:to_s).sort ].to_json)
+      ids = Array(document_ids).map(&:to_s).sort
+      digest = Digest::SHA256.hexdigest(
+        [ normalize_question(question), ids, documents_version(ids) ].to_json
+      )
       "rag:query:#{tenant.id}:#{digest}"
+    end
+
+    # Safe normalization for more cache hits: downcase, collapse whitespace and
+    # trim surrounding punctuation, so "¿Qué hago?" and "que hago" with trailing
+    # spaces map to the same key. Deliberately does NOT strip accents — in Spanish
+    # that can change meaning ("si"/"sí"), and a wrong cache hit is worse than a miss.
+    def normalize_question(question)
+      question.to_s.unicode_normalize(:nfc)
+              .strip.downcase
+              .gsub(/\s+/, " ")
+              .gsub(/\A\p{P}+|\p{P}+\z/, "")
+              .strip
+    end
+
+    # Content fingerprint of the queried documents: their latest chunk timestamp.
+    # insert_all! stamps every chunk on each (re)ingest, so any rebuild bumps this
+    # and busts the cache. One indexed aggregate (~1ms) — negligible vs a miss.
+    def documents_version(document_ids)
+      DocumentChunk.where(document_id: document_ids).maximum(:updated_at)&.to_f
     end
   end
 end

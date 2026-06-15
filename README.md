@@ -270,7 +270,7 @@ rag_query_latency_seconds_sum 0.146
 rag_ingestions_total{status="completed"} 1.0
 ```
 
-**Caché distribuida (Solid Cache sobre PostgreSQL):** la caché de consultas (exact-match: misma pregunta + mismos documentos) y los contadores de rate limiting viven en Postgres, así que son **consistentes entre procesos/instancias**. En la práctica, una consulta repetida baja de ~144ms a ~2ms (cache hit). *(Una caché realmente semántica —hit por similitud de embedding sobre un umbral— está en el roadmap.)*
+**Caché distribuida (Solid Cache sobre PostgreSQL):** la caché de consultas y los contadores de rate limiting viven en Postgres, así que son **consistentes entre procesos/instancias**. En la práctica, una consulta repetida baja de ~144ms a ~2ms (cache hit). La clave del caché está **versionada por contenido**: la pregunta se normaliza (minúsculas, espacios, puntuación de los extremos) para que variantes triviales compartan entrada, e incluye la marca de tiempo del último chunk de los documentos, de modo que **re-ingestar un documento invalida sus respuestas cacheadas** (nunca sirve una respuesta vieja). *(Una caché realmente semántica —hit por similitud de embedding— se difiere hasta tener generación con LLM de pago, donde un miss cuesta dinero; ver roadmap.)*
 
 **Tracing distribuido (OpenTelemetry):** el tercer pilar de observabilidad, junto a logs y métricas. Auto-instrumenta Rack/Action Pack, Active Record (pgvector), Net::HTTP (OpenAI) y Active Job, y añade spans propios del pipeline — `rag.query` → `rag.embed` / `rag.search` / `rag.generate` en el Read Path, y `rag.ingest` → `rag.extract` / `rag.chunk` / `rag.embed` en el Write Path. Gracias a la propagación de contexto de Active Job, **una sola traza enlaza el `POST /documents` síncrono con el `DocumentIngestionJob` asíncrono** (cruzando el límite de procesos). El desglose por span revela exactamente dónde se va la latencia (típicamente la llamada al LLM domina el tiempo de la consulta).
 
@@ -344,11 +344,11 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] Embeddings reales con **Google Gemini** (capa gratuita, multi-proveedor con fallback)
 - [x] Calidad máxima medida (Gemini + jina multilingüe): **recall/MRR/keywords = 1.0**
 - [x] Respuestas extractivas enfocadas (frase relevante + multi-fuente, sin LLM)
+- [x] **Idempotencia de embeddings** — reuso por `content_hash` + provider; re-ingestar contenido sin cambios no re-embebe (ahorra cuota Gemini)
+- [x] **Chunking estructural** — segmenta por párrafos (con reflow) y secciones (encabezados); no mezcla secciones y solo parte por caracteres lo que excede 500. Evals sin cambios en el corpus limpio; gana robustez con PDFs reales desordenados
 
 ### Próximos pasos (opcionales, ordenados por valor)
 
-- [ ] **Idempotencia de embeddings** — hash de contenido para no re-embeber chunks sin cambios → ahorra el recurso más caro (cuota Gemini). *(rápido, gratis)*
-- [ ] **Chunking estructural** — cortar por párrafos/secciones reales en vez de por nº de caracteres; rinde con PDFs reales grandes/desordenados (el corpus de la demo ya es limpio). Medir con los evals. *(gratis)*
 - [ ] **Generación real con LLM** — el salto de mayor impacto visible; hoy el fallback es extractivo. Requiere proveedor de pago (Gemini con billing, o Claude Haiku ~$0.0025/respuesta) tras el patrón live/fallback ya existente.
 
 > **Para retomar:** el estado, las decisiones y los hallazgos (incluido *por qué* el reranker inglés se descartó por el multilingüe, y los límites de la capa gratuita de Gemini) están en [AUDIT.md](AUDIT.md); el procedimiento de deploy en [DEPLOY.md](DEPLOY.md); los incidentes y sus fixes en [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
