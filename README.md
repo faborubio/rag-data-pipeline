@@ -118,7 +118,7 @@ curl -X POST http://localhost:3000/api/v1/documents \
 // 202 Accepted
 { "id": "d3b0...", "filename": "manual.pdf", "status": "processing" }
 ```
-Validaciones: extensión `.pdf` estricta y tamaño máximo **160 MB** (configurable con `MAX_UPLOAD_MB`; de lo contrario `422`). El archivo se **streamea a disco** (nunca a memoria) y la extracción con `pdftotext` tiene timeout (`PDF_EXTRACTION_TIMEOUT`, def 120s). Para PDFs grandes, el embedding se espacia y reintenta ante el rate limit del free tier de Gemini (`GEMINI_THROTTLE_SECONDS`).
+Validaciones: extensión `.pdf` estricta y tamaño máximo **160 MB** (configurable con `MAX_UPLOAD_MB`; de lo contrario `422`). El archivo se **streamea a disco** (nunca a memoria) y la extracción con `pdftotext` tiene timeout (`PDF_EXTRACTION_TIMEOUT`, def 120s). Para PDFs grandes con el free tier de Gemini, el embedding se espacia (`GEMINI_THROTTLE_SECONDS`), reintenta ante 429 (sin abrir el circuit breaker) y **memoiza cada vector en Solid Cache**, de modo que una ingesta interrumpida por rate limit **reanuda** sin re-embeber. Para ingerir un PDF grande localmente de forma reanudable: `rake 'rag:ingest[/ruta/al.pdf,Nombre Tenant]'` (re-ejecutable hasta completar).
 
 ### `GET /api/v1/documents/:id` — Estado de un documento
 

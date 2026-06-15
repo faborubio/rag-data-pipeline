@@ -10,10 +10,15 @@ module Rag
   class CircuitBreaker
     class OpenCircuitError < StandardError; end
 
-    def initialize(name:, failure_threshold: 5, reset_timeout: 30)
+    # `ignore`: exception classes that are pass-through — re-raised without
+    # counting as a failure (nor a success). Used for backpressure like HTTP 429,
+    # which means "slow down", not "the dependency is down"; counting it would
+    # trip the breaker and abort an otherwise-healthy bulk operation.
+    def initialize(name:, failure_threshold: 5, reset_timeout: 30, ignore: [])
       @name = name
       @failure_threshold = failure_threshold
       @reset_timeout = reset_timeout
+      @ignore = ignore
       @mutex = Mutex.new
       @state = :closed
       @failures = 0
@@ -26,6 +31,8 @@ module Rag
       record_success
       result
     rescue OpenCircuitError
+      raise
+    rescue *@ignore
       raise
     rescue StandardError => e
       record_failure

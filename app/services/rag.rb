@@ -8,8 +8,11 @@ module Rag
   GEMINI_EMBEDDING_MODEL = "gemini-embedding-001".freeze
   CHAT_MODEL = "gpt-4o-mini".freeze
 
+  # Rate limits (429) are backpressure, not an outage, so they are ignored by the
+  # breaker — otherwise a few throttled batches during a large ingest would trip
+  # it and abort the whole document. The Embedder retries 429s with backoff.
   def self.embedding_breaker
-    @embedding_breaker ||= CircuitBreaker.new(name: "openai_embeddings")
+    @embedding_breaker ||= CircuitBreaker.new(name: "embeddings", ignore: [ Embedder::RateLimitError ])
   end
 
   def self.llm_breaker

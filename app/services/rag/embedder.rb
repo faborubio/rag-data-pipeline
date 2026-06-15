@@ -15,17 +15,24 @@ module Rag
     class RateLimitError < StandardError; end
 
     BATCH_SIZE = 20
-    # Retry/backoff for 429s. Delays: ~1, 2, 4, 8, 16s (+ jitter), capped.
-    MAX_RATE_LIMIT_RETRIES = 5
-    RATE_LIMIT_BASE_DELAY = 1.0
-    RATE_LIMIT_MAX_DELAY = 30.0
-    RATE_LIMIT_JITTER = 0.5
+    # Retry/backoff for 429s. The free tier rate-limits in a roughly per-minute
+    # window, so retries are patient enough to outlast it: delays grow ~2, 4, 8,
+    # 16, 32, 32s (+ jitter) for 6 tries (~90s cumulative). If the wall is harder
+    # (a daily cap), the batch eventually raises and the run stops — but every
+    # batch embedded so far is already cached, so re-running resumes.
+    MAX_RATE_LIMIT_RETRIES = 6
+    RATE_LIMIT_BASE_DELAY = 2.0
+    RATE_LIMIT_MAX_DELAY = 32.0
+    RATE_LIMIT_JITTER = 1.0
+    # Persistent memo for computed embeddings (Solid Cache). Long-lived so a
+    # paced bulk embed that spans several days can resume against it.
+    EMBEDDING_CACHE_TTL = 30.days
     GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/" \
                       "#{Rag::GEMINI_EMBEDDING_MODEL}:batchEmbedContents".freeze
 
     def initialize(gemini_key: ENV["GEMINI_API_KEY"], api_key: ENV["OPENAI_API_KEY"],
                    breaker: Rag.embedding_breaker,
-                   throttle: (ENV["GEMINI_THROTTLE_SECONDS"] || 0.5).to_f)
+                   throttle: (ENV["GEMINI_THROTTLE_SECONDS"] || 5.0).to_f)
       @gemini_key = gemini_key.presence
       @api_key = api_key.presence
       @breaker = breaker
@@ -34,14 +41,37 @@ module Rag
 
     # texts: Array<String> -> Array<Array<Float>> (aligned by index)
     #
-    # Batches are spaced out (Gemini only) so bulk ingestion of a big document
-    # stays under the free-tier per-minute limit instead of bursting into 429s.
-    # A single batch (e.g. embedding one query) never waits.
+    # Live providers go through a persistent embedding cache keyed by provider +
+    # content, written batch-by-batch: a paced bulk embed that gets interrupted
+    # (rate limit, crash) keeps its progress, so a re-run only embeds what's left.
+    # Batches are spaced out to stay under the free-tier per-minute limit; a
+    # single batch (e.g. one query) never waits. The deterministic fallback is
+    # local and free, so it skips the cache and the pacing entirely.
     def embed(texts)
-      Array(texts).each_slice(BATCH_SIZE).each_with_index.flat_map do |batch, i|
-        throttle if i.positive? && provider == :gemini
-        embed_batch(batch)
+      texts = Array(texts)
+      return [] if texts.empty?
+
+      prov = provider
+      return texts.map { |text| fake_embedding(text) } if prov == :fallback
+
+      keys = texts.map { |text| cache_key(prov, text) }
+      cached = Rails.cache.read_multi(*keys.uniq)
+      result = Array.new(texts.size)
+      misses = []
+      texts.each_index do |i|
+        hit = cached[keys[i]]
+        hit ? result[i] = hit : misses << i
       end
+
+      misses.each_slice(BATCH_SIZE).with_index do |index_batch, batch_no|
+        throttle if batch_no.positive? && prov == :gemini
+        vectors = embed_batch(index_batch.map { |i| texts[i] })
+        index_batch.each_with_index do |i, j|
+          result[i] = vectors[j]
+          Rails.cache.write(keys[i], vectors[j], expires_in: EMBEDDING_CACHE_TTL)
+        end
+      end
+      result
     end
 
     def embed_one(text)
@@ -94,6 +124,12 @@ module Rag
 
     def throttle
       sleep(@throttle) if @throttle.positive?
+    end
+
+    # Provider is part of the key: vectors from different providers live in
+    # different spaces and must never be served for one another.
+    def cache_key(provider, text)
+      "rag:emb:#{provider}:#{Digest::SHA256.hexdigest(text)}"
     end
 
     # One batched call to Gemini; outputDimensionality pins the result to 1536.

@@ -33,6 +33,19 @@ class Rag::CircuitBreakerTest < ActiveSupport::TestCase
     assert breaker.open?, "a failed trial should send the breaker straight back to open"
   end
 
+  test "ignored exceptions pass through without ever opening the circuit" do
+    rate_limit = Class.new(StandardError)
+    breaker = Rag::CircuitBreaker.new(name: "t", failure_threshold: 2, reset_timeout: 60, ignore: [ rate_limit ])
+
+    # Many more than the threshold: an ignored error must never count as a failure.
+    5.times { assert_raises(rate_limit) { breaker.run { raise rate_limit } } }
+    assert_not breaker.open?, "ignored errors must not trip the breaker"
+
+    # Non-ignored failures still open it as usual.
+    2.times { assert_raises(RuntimeError) { breaker.run { raise "boom" } } }
+    assert breaker.open?
+  end
+
   test "half-open admits only one trial request at a time" do
     breaker = Rag::CircuitBreaker.new(name: "t", failure_threshold: 1, reset_timeout: 0)
     assert_raises(RuntimeError) { breaker.run { raise "boom" } }

@@ -15,6 +15,30 @@ namespace :rag do
     puts "Done."
   end
 
+  desc "Ingest a local PDF, resumable across runs (free-tier friendly). " \
+       "Usage: rake 'rag:ingest[/abs/path.pdf,Tenant Name]'"
+  task :ingest, [ :path, :tenant ] => :environment do |_t, args|
+    path = args.path or abort "path required: rake 'rag:ingest[/abs/path.pdf,Tenant]'"
+    abort "no such file: #{path}" unless File.exist?(path)
+
+    tenant = Tenant.find_or_create_by!(name: args.tenant.presence || "Local Ingest")
+    document = tenant.documents.find_or_create_by!(filename: File.basename(path)) do |d|
+      d.status = :processing
+    end
+    embedder = Rag::Embedder.new
+    puts "Ingesting #{File.basename(path)} into '#{tenant.name}' (provider=#{embedder.provider})"
+
+    begin
+      count = Rag::Ingestor.new(embedder: embedder).call(document, path)
+      document.completed!
+      puts "DONE: #{count} chunks embedded and stored."
+    rescue Rag::Embedder::RateLimitError
+      # Every batch embedded so far is cached; re-running resumes from there.
+      puts "Rate limit reached — partial progress is cached."
+      puts "Re-run the same command later to resume (only the remaining chunks are fetched)."
+    end
+  end
+
   desc "Run RAG quality evals (recall@k, MRR, keyword presence) against the golden set"
   task evals: :environment do
     report = nil

@@ -168,16 +168,26 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
   pregunta servida por streaming queda cacheada para la próxima, streamed o no, y
   viceversa. El controller (`stream_answer`) ya no llama al LLM directo.
 
-- **PDFs grandes con recursos limitados** — tres cambios para que un PDF pesado (p.ej.
-  140MB / 339 págs) sea procesable sin VPS más grande: (1) **throttle + retry/backoff
-  ante 429** en el `Embedder` — espacia los lotes (Gemini) bajo `GEMINI_THROTTLE_SECONDS`
-  (def 0.5s) y reintenta los 429 con backoff exponencial+jitter (5 intentos), dentro del
-  circuit breaker; el cuello del free tier es ritmo, no cantidad. (2) `MAX_SIZE` subido a
-  160MB (`MAX_UPLOAD_MB`) y upload **streameado a disco** (`IO.copy_stream` del tempfile
-  de Rack, ya no `file.read` a RAM). (3) **timeout** en `pdftotext` (`PDF_EXTRACTION_TIMEOUT`,
-  def 120s) vía `popen3` + threads + SIGKILL, para que un PDF colgado no bloquee el worker.
-  Nota: el punto realmente apretado en el VPS chico sigue siendo la RAM de extracción de
-  un binario de 140MB — medir en el primer doc grande real.
+- **PDFs grandes con recursos limitados** — cambios para procesar un PDF pesado (medido
+  con un libro real de 147MB / 339 págs) sin VPS más grande: (1) `MAX_SIZE` 20→160MB
+  (`MAX_UPLOAD_MB`) y upload **streameado a disco** (`IO.copy_stream` del tempfile de
+  Rack, ya no `file.read` a RAM). (2) **timeout** en `pdftotext` (`PDF_EXTRACTION_TIMEOUT`,
+  def 120s) vía `popen3`+threads+SIGKILL. (3) **throttle + retry/backoff ante 429** en el
+  `Embedder`, y el **circuit breaker ignora los 429** (`ignore:` en `CircuitBreaker`) —
+  un 429 es backpressure, no caída, así que ya no abre el breaker ni aborta la ingesta.
+
+  **Medición real (local):** extracción 10s y **solo ~21MB de RAM** (pdftotext procesa
+  página a página → el miedo a la RAM del VPS quedó descartado); 339 págs → **2.075
+  chunks** → 104 lotes. El muro real es el **rate limit del free tier de Gemini**
+  (RESOURCE_EXHAUSTED): el bulk sostenido lo satura; recupera estando idle (es sobre todo
+  por-minuto) pero puede haber tope diario.
+
+- **Embedding reanudable (free-tier friendly)** — el `Embedder` memoiza cada embedding en
+  **Solid Cache** (clave `provider+sha256(texto)`, TTL 30d), escrito **lote a lote**. Si
+  una corrida se corta por rate limit, lo ya embebido sobrevive y un re-run solo pide lo
+  que falta (validado: 2ª corrida = 0 llamadas a la API). Rake task `rag:ingest[path,tenant]`
+  re-ejecutable para ingerir un PDF local y reanudar entre días. `GEMINI_THROTTLE_SECONDS`
+  def 5s. Camino elegido para no pagar; el salto a Gemini billing lo volvería innecesario.
 
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
 
