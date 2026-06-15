@@ -3,7 +3,10 @@ require "fileutils"
 module Api
   module V1
     class DocumentsController < BaseController
-      MAX_SIZE = 20.megabytes
+      # Upload ceiling. Default 160MB covers large manuals (hundreds of pages);
+      # override with MAX_UPLOAD_MB. The file is streamed to disk (never read into
+      # memory), so the practical limit is disk + extraction RAM, not process RAM.
+      MAX_SIZE = (ENV["MAX_UPLOAD_MB"] || 160).to_i.megabytes
 
       # GET /api/v1/documents
       def index
@@ -23,7 +26,7 @@ module Api
         file = params[:file]
         return render_error("file is required", :unprocessable_entity)        if file.blank?
         return render_error("only .pdf files are allowed", :unprocessable_entity) unless pdf?(file)
-        return render_error("file exceeds the 20MB limit", :unprocessable_entity) if file.size > MAX_SIZE
+        return render_error("file exceeds the #{MAX_SIZE / 1.megabyte}MB limit", :unprocessable_entity) if file.size > MAX_SIZE
 
         document = current_tenant.documents.create!(filename: file.original_filename, status: :processing)
         path = store(file)
@@ -54,7 +57,10 @@ module Api
         dir = Rails.root.join("tmp", "uploads")
         FileUtils.mkdir_p(dir)
         path = dir.join("#{SecureRandom.uuid}.pdf")
-        File.binwrite(path, file.read)
+        # Rack already buffered the upload to a tempfile on disk; stream-copy it
+        # so a 100MB+ file never lands in process memory.
+        file.rewind
+        IO.copy_stream(file.tempfile, path)
         path
       end
 

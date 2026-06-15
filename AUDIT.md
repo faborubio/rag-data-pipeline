@@ -168,12 +168,22 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
   pregunta servida por streaming queda cacheada para la próxima, streamed o no, y
   viceversa. El controller (`stream_answer`) ya no llama al LLM directo.
 
+- **PDFs grandes con recursos limitados** — tres cambios para que un PDF pesado (p.ej.
+  140MB / 339 págs) sea procesable sin VPS más grande: (1) **throttle + retry/backoff
+  ante 429** en el `Embedder` — espacia los lotes (Gemini) bajo `GEMINI_THROTTLE_SECONDS`
+  (def 0.5s) y reintenta los 429 con backoff exponencial+jitter (5 intentos), dentro del
+  circuit breaker; el cuello del free tier es ritmo, no cantidad. (2) `MAX_SIZE` subido a
+  160MB (`MAX_UPLOAD_MB`) y upload **streameado a disco** (`IO.copy_stream` del tempfile
+  de Rack, ya no `file.read` a RAM). (3) **timeout** en `pdftotext` (`PDF_EXTRACTION_TIMEOUT`,
+  def 120s) vía `popen3` + threads + SIGKILL, para que un PDF colgado no bloquee el worker.
+  Nota: el punto realmente apretado en el VPS chico sigue siendo la RAM de extracción de
+  un binario de 140MB — medir en el primer doc grande real.
+
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
 
 1. **Generación real con LLM** — el fallback ya es extractivo-enfocado; el salto a
    respuestas generadas requiere proveedor de pago (Gemini con billing / Claude
    Haiku) tras el patrón live/fallback existente.
-2. **Resiliencia de cuota Gemini** — retry con backoff en el embedder ante 429.
-3. **Caché semántica real** — diferida a propósito: el embed (lo que ahorraría) es la
+2. **Caché semántica real** — diferida a propósito: el embed (lo que ahorraría) es la
    parte barata; el ahorro grande (rerank + LLM) recién vale con LLM de pago, y trae
    riesgo de hit incorrecto. Revisar junto con la generación real.

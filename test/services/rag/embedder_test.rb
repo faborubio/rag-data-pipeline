@@ -1,6 +1,24 @@
 require "test_helper"
 
 class Rag::EmbedderTest < ActiveSupport::TestCase
+  # Drives the Gemini path without hitting the network: `post_json` is fed by a
+  # responder lambda, and `sleep` is captured instead of actually waiting.
+  class StubbedEmbedder < Rag::Embedder
+    attr_reader :sleeps
+
+    def initialize(responder, **opts)
+      super(gemini_key: "gk", breaker: Rag::CircuitBreaker.new(name: "test"), **opts)
+      @responder = responder
+      @sleeps = []
+    end
+
+    def sleep(seconds) = @sleeps << seconds
+    def post_json(*args) = @responder.call(*args)
+  end
+
+  def gemini_body(payload)
+    { "embeddings" => Array.new(payload[:requests].size) { { "values" => Array.new(1536, 0.01) } } }
+  end
   test "produces one 1536-dim vector per input without an API key" do
     embedder = Rag::Embedder.new(api_key: nil, gemini_key: nil)
     vectors = embedder.embed(%w[a b c])
@@ -59,6 +77,41 @@ class Rag::EmbedderTest < ActiveSupport::TestCase
 
     assert_equal 1536, vector.size
     assert_in_delta 1.0, Math.sqrt(vector.sum { |x| x * x }), 1e-9
+  end
+
+  test "retries a rate-limited Gemini batch and then succeeds" do
+    calls = 0
+    responder = lambda do |_url, _headers, payload|
+      calls += 1
+      raise Rag::Embedder::RateLimitError, "429" if calls == 1
+
+      gemini_body(payload)
+    end
+    embedder = StubbedEmbedder.new(responder, throttle: 0)
+
+    vectors = embedder.embed([ "hola" ])
+
+    assert_equal 1, vectors.size
+    assert_equal 1536, vectors.first.size
+    assert_equal 2, calls, "should retry once after the 429"
+    assert_equal 1, embedder.sleeps.size, "should back off once before retrying"
+  end
+
+  test "gives up after exhausting retries on persistent rate limiting" do
+    responder = ->(*_) { raise Rag::Embedder::RateLimitError, "429" }
+    embedder = StubbedEmbedder.new(responder, throttle: 0)
+
+    assert_raises(Rag::Embedder::RateLimitError) { embedder.embed([ "hola" ]) }
+    assert_equal Rag::Embedder::MAX_RATE_LIMIT_RETRIES, embedder.sleeps.size
+  end
+
+  test "throttles between Gemini batches but never before the first" do
+    responder = ->(_url, _headers, payload) { gemini_body(payload) }
+    embedder = StubbedEmbedder.new(responder, throttle: 0.25)
+
+    embedder.embed(Array.new(45) { |i| "t#{i}" }) # 45 inputs -> batches of 20, 20, 5
+
+    assert_equal [ 0.25, 0.25 ], embedder.sleeps, "two gaps between three batches, none before the first"
   end
 
   private

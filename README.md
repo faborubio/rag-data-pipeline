@@ -46,7 +46,7 @@ El sistema se divide en dos flujos críticos diseñados para maximizar rendimien
 ┌─────────────────────────── WRITE PATH (asíncrono) ───────────────────────────┐
 │                                                                               │
 │  POST /api/v1/documents                                                       │
-│        │  (valida .pdf + ≤20MB)                                               │
+│        │  (valida .pdf + ≤160MB)                                              │
 │        ▼                                                                       │
 │  Document(status: processing) ──► DocumentIngestionJob (Solid Queue)          │
 │                                        │                                       │
@@ -118,7 +118,7 @@ curl -X POST http://localhost:3000/api/v1/documents \
 // 202 Accepted
 { "id": "d3b0...", "filename": "manual.pdf", "status": "processing" }
 ```
-Validaciones: extensión `.pdf` estricta y tamaño máximo **20 MB** (de lo contrario `422`).
+Validaciones: extensión `.pdf` estricta y tamaño máximo **160 MB** (configurable con `MAX_UPLOAD_MB`; de lo contrario `422`). El archivo se **streamea a disco** (nunca a memoria) y la extracción con `pdftotext` tiene timeout (`PDF_EXTRACTION_TIMEOUT`, def 120s). Para PDFs grandes, el embedding se espacia y reintenta ante el rate limit del free tier de Gemini (`GEMINI_THROTTLE_SECONDS`).
 
 ### `GET /api/v1/documents/:id` — Estado de un documento
 

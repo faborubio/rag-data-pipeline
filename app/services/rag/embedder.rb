@@ -9,20 +9,39 @@ module Rag
   # deterministic bag-of-words fallback so the pipeline (and the CI evals) run
   # locally with no external dependency at all.
   class Embedder
+    # Raised when a provider replies 429 (rate limit). Retried with backoff
+    # instead of failing the whole ingest — the free tier limits requests per
+    # minute, so a large document just needs pacing, not more quota.
+    class RateLimitError < StandardError; end
+
     BATCH_SIZE = 20
+    # Retry/backoff for 429s. Delays: ~1, 2, 4, 8, 16s (+ jitter), capped.
+    MAX_RATE_LIMIT_RETRIES = 5
+    RATE_LIMIT_BASE_DELAY = 1.0
+    RATE_LIMIT_MAX_DELAY = 30.0
+    RATE_LIMIT_JITTER = 0.5
     GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/" \
                       "#{Rag::GEMINI_EMBEDDING_MODEL}:batchEmbedContents".freeze
 
     def initialize(gemini_key: ENV["GEMINI_API_KEY"], api_key: ENV["OPENAI_API_KEY"],
-                   breaker: Rag.embedding_breaker)
+                   breaker: Rag.embedding_breaker,
+                   throttle: (ENV["GEMINI_THROTTLE_SECONDS"] || 0.5).to_f)
       @gemini_key = gemini_key.presence
       @api_key = api_key.presence
       @breaker = breaker
+      @throttle = throttle
     end
 
     # texts: Array<String> -> Array<Array<Float>> (aligned by index)
+    #
+    # Batches are spaced out (Gemini only) so bulk ingestion of a big document
+    # stays under the free-tier per-minute limit instead of bursting into 429s.
+    # A single batch (e.g. embedding one query) never waits.
     def embed(texts)
-      Array(texts).each_slice(BATCH_SIZE).flat_map { |batch| embed_batch(batch) }
+      Array(texts).each_slice(BATCH_SIZE).each_with_index.flat_map do |batch, i|
+        throttle if i.positive? && provider == :gemini
+        embed_batch(batch)
+      end
     end
 
     def embed_one(text)
@@ -45,10 +64,36 @@ module Rag
 
     def embed_batch(batch)
       case provider
-      when :gemini then @breaker.run { gemini_embeddings(batch) }
-      when :openai then @breaker.run { openai_embeddings(batch) }
+      when :gemini then @breaker.run { with_rate_limit_retry { gemini_embeddings(batch) } }
+      when :openai then @breaker.run { with_rate_limit_retry { openai_embeddings(batch) } }
       else batch.map { |text| fake_embedding(text) }
       end
+    end
+
+    # Retries a rate-limited (429) call with exponential backoff + jitter. Only
+    # 429 is retried; other errors propagate immediately. Runs INSIDE the circuit
+    # breaker, so a batch that eventually succeeds counts as one success and a
+    # batch that exhausts its retries counts as a single breaker failure.
+    def with_rate_limit_retry
+      attempt = 0
+      begin
+        yield
+      rescue RateLimitError
+        attempt += 1
+        raise if attempt > MAX_RATE_LIMIT_RETRIES
+
+        sleep(backoff_seconds(attempt))
+        retry
+      end
+    end
+
+    def backoff_seconds(attempt)
+      delay = RATE_LIMIT_BASE_DELAY * (2**(attempt - 1)) + rand * RATE_LIMIT_JITTER
+      [ delay, RATE_LIMIT_MAX_DELAY ].min
+    end
+
+    def throttle
+      sleep(@throttle) if @throttle.positive?
     end
 
     # One batched call to Gemini; outputDimensionality pins the result to 1536.
@@ -73,7 +118,9 @@ module Rag
       request["Content-Type"] = "application/json"
       request.body = payload.to_json
       response = http.request(request)
-      raise "Gemini API #{response.code}: #{response.body.to_s[0, 200]}" unless response.code.to_i == 200
+      code = response.code.to_i
+      raise RateLimitError, "Gemini API 429: #{response.body.to_s[0, 200]}" if code == 429
+      raise "Gemini API #{response.code}: #{response.body.to_s[0, 200]}" unless code == 200
 
       JSON.parse(response.body)
     end
