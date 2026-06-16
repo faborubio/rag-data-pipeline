@@ -140,12 +140,55 @@ DEPLOY.md.
   `OpenTelemetry::Trace::Span...` por stdout y tapan el output útil.
 - **Causa:** en `development` el inicializador de OTel usa el *console exporter*,
   que imprime cada span a stdout.
-- **Solución:** para inspeccionar el resultado real, filtra
-  (`... 2>&1 | grep -vE "^I, |Instrumentation"`) o verifica el efecto de otra forma
-  (p. ej. `db/structure.sql` tras una migración en vez de leer el log de
-  `db:migrate`).
+- **Solución:** anteponer `OTEL_SDK_DISABLED=true` desactiva el SDK por completo y
+  deja el stdout limpio (ideal para `runner` exploratorios):
+  ```bash
+  OTEL_SDK_DISABLED=true bin/rails runner '...'
+  ```
+  Alternativa sin tocar el entorno: filtrar (`... 2>/dev/null` o
+  `2>&1 | grep -vE "^I, |Instrumentation"`).
 - **Prevención:** no te fíes del exit/output ruidoso; confirma el efecto en la
   fuente de verdad (schema, BD, archivo generado).
+
+### La demo local muestra "No se pudo iniciar la demo: HTTP 404"
+
+- **Síntoma:** `http://localhost:3000/demo.html` carga pero muestra *"No se pudo
+  iniciar la demo: HTTP 404"* y *"Demo no disponible"*; no hay campo para pegar la
+  API key (está oculto).
+- **Causa:** la demo se autocredencia llamando a `GET /api/v1/demo`
+  ([`DemoController#show`](app/controllers/api/v1/demo_controller.rb)), que devuelve
+  la key del **tenant read-only** (`Tenant.where(read_only: true).order(:created_at).first`).
+  En producción ese tenant existe; en una BD de desarrollo recién sembrada **ningún
+  tenant es `read_only`**, así que el endpoint responde 404.
+- **Solución:** marcar como read-only el tenant cuyo corpus quieras exponer en la
+  demo (solo habilita consultar, nunca ingerir):
+  ```bash
+  OTEL_SDK_DISABLED=true bin/rails runner \
+    't = Tenant.find_by(name: "Libro Baseline"); t.update!(read_only: true)'
+  ```
+  Refresca con **Ctrl+Shift+R**: la demo carga la key sola y lista los documentos
+  `completed` de ese tenant.
+- **Para que la abstención funcione en la demo:** levanta el server con el reranker
+  neural — el léxico (default) **responde siempre y nunca abstiene**:
+  ```bash
+  RERANKER=neural bin/dev          # o: RERANKER=neural bin/rails server -b 0.0.0.0
+  ```
+  (En WSL2, `-b 0.0.0.0` permite que el navegador de Windows alcance `localhost:3000`.)
+- **Subir documentos desde la demo (solo local):** la demo muestra la zona de subida
+  (PDF/TXT/MD) **únicamente cuando el tenant servido es escribible** (`read_only:
+  false`); el JSON de `/api/v1/demo` trae `can_upload`. En prod el tenant es
+  `read_only` → sin botón, y además `DocumentsController#create` rechaza el upload
+  (403). Para habilitarla en local, sirve un tenant escribible: si hay varios tenants,
+  fíjalo con `DEMO_TENANT`:
+  ```bash
+  DEMO_TENANT="Libro Baseline" RERANKER=neural bin/rails server -b 0.0.0.0
+  # y asegúrate de que ese tenant NO sea read_only:
+  OTEL_SDK_DISABLED=true bin/rails runner \
+    't = Tenant.find_by(name: "Libro Baseline"); t.update!(read_only: false)'
+  ```
+- **Prevención:** los chips de ejemplo de `demo.html` son del corpus sintético
+  (incendio/evacuación); con otro corpus, escribe preguntas propias dentro/fuera de
+  tema para ver responder vs. abstener.
 
 ### `bundle install` / `gem install` falla por permisos del gem dir del sistema
 

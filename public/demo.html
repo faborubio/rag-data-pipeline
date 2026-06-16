@@ -54,7 +54,7 @@
 <body>
   <header>
     <h1>🚀 RAG Data Pipeline</h1>
-    <span class="tag">demo pública · solo lectura · streaming · sabe cuándo no responder</span>
+    <span class="tag" id="headerTag">demo pública · solo lectura · streaming · sabe cuándo no responder</span>
   </header>
 
   <div class="wrap">
@@ -64,6 +64,15 @@
       <div class="panel">
         <h2>Demo de solo lectura</h2>
         <div class="note" id="demoNote">Cargando la demo…</div>
+      </div>
+
+      <div class="panel" id="uploadPanel" style="margin-top:14px;display:none">
+        <h2>Subir documento</h2>
+        <div class="row">
+          <input id="file" type="file" accept=".pdf,.txt,.md" />
+        </div>
+        <button id="uploadBtn" style="width:100%" onclick="upload()">Subir e ingerir</button>
+        <div class="muted" id="uploadNote" style="margin-top:8px">PDF, TXT o Markdown (hasta 160 MB).</div>
       </div>
 
       <div class="panel" style="margin-top:14px">
@@ -112,6 +121,11 @@
         const j = await r.json();
         $("apiKey").value = j.api_key;
         $("demoNote").innerHTML = `Conectado al tenant <b>${escapeHtml(j.tenant)}</b>. Pregunta sobre los documentos — o algo fuera de tema para ver cómo <b>se abstiene</b>.`;
+        // Writable tenant (local dev): enable upload. The backend is still the gate.
+        if (j.can_upload) {
+          $("uploadPanel").style.display = "";
+          $("headerTag").textContent = "modo local · subida habilitada · streaming · sabe cuándo no responder";
+        }
         await loadDocs();
         loadAnalytics();
       } catch (e) {
@@ -149,6 +163,51 @@
     }
     function toggle(id, on) { on ? selected.add(id) : selected.delete(id); updateSel(); }
     function updateSel(){ $("selInfo").textContent = selected.size ? `${selected.size} documento(s) seleccionado(s)` : "Selecciona documentos (completados) para preguntar."; }
+
+    // Upload (writable tenant only). POSTs the file, then polls loadDocs() until
+    // the new document finishes ingesting, and auto-selects it so you can ask.
+    async function upload() {
+      const f = $("file").files[0];
+      if (!f) return alert("Elige un archivo (.pdf, .txt o .md).");
+      $("uploadBtn").disabled = true;
+      $("uploadNote").textContent = `Subiendo ${f.name}…`;
+      try {
+        const body = new FormData(); body.append("file", f);
+        // No Content-Type: the browser sets the multipart boundary itself.
+        const r = await fetch("/api/v1/documents", { method: "POST", headers: authHeaders(), body });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { $("uploadNote").textContent = "Error: " + (j.error || ("HTTP " + r.status)); return; }
+        $("file").value = "";
+        $("uploadNote").textContent = `“${j.filename}” en proceso…`;
+        await pollUntilReady(j.id, j.filename);
+      } catch (e) {
+        $("uploadNote").textContent = "Error de red: " + e.message;
+      } finally {
+        $("uploadBtn").disabled = false;
+      }
+    }
+
+    async function pollUntilReady(id, filename) {
+      for (let i = 0; i < 30; i++) {            // ~60s máx (2s × 30)
+        await new Promise(res => setTimeout(res, 2000));
+        await loadDocs();                        // repinta badges processing→completed
+        let status = null;
+        try {
+          const r = await fetch("/api/v1/documents/" + id, { headers: authHeaders() });
+          if (r.ok) status = (await r.json()).status;
+        } catch (e) { /* reintenta */ }
+        if (status === "completed") {
+          selected.add(id); updateSel(); await loadDocs();
+          $("uploadNote").textContent = `“${filename}” listo ✓ — ya puedes preguntar.`;
+          return;
+        }
+        if (status === "failed") {
+          $("uploadNote").textContent = `“${filename}” falló al procesar.`;
+          return;
+        }
+      }
+      $("uploadNote").textContent = `“${filename}” sigue procesando — refresca documentos en un momento.`;
+    }
 
     async function loadAnalytics() {
       if (!key()) return;

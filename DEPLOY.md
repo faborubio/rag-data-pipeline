@@ -37,6 +37,27 @@ curl -s -o /dev/null -w "auth: %{http_code}\n"    $B/api/v1/documents  # 401 sin
 curl -sI $B/demo.html | grep -i strict-transport  # HSTS presente
 ```
 
+## Tenant de la demo pública (solo lectura)
+
+La demo (`/demo.html`) se autocredencia vía `GET /api/v1/demo`, que sirve un tenant
+**marcado `read_only`**. Ese flag es la barrera real: la UI oculta la zona de subida
+(`can_upload: false`) **y** `DocumentsController#create` rechaza cualquier upload a un
+tenant read-only (403). Por eso la demo pública nunca permite ingesta.
+
+El tenant se crea una sola vez en la VPS (no está en seeds). Para crearlo / verificar
+que es read-only e ingerir su corpus:
+
+```bash
+ssh fabian@34.176.216.64 'cd ~/rag-data-pipeline && docker compose -f compose.production.yml exec -T web \
+  bin/rails runner "t = Tenant.find_or_create_by!(name: %q(Libro Baseline)); t.update!(read_only: true); puts t.read_only"'
+# debe imprimir: true
+```
+
+> Si algún día la demo de prod empezara a mostrar el botón de subir, es que su tenant
+> quedó con `read_only: false` — corrígelo con el `update!(read_only: true)` de arriba.
+> En **local** ocurre lo contrario a propósito (tenant escribible → subida habilitada);
+> ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
 ## ⚠️ Gotcha: cambios al `Caddyfile` requieren recrear el contenedor
 
 **Síntoma** (nos pasó el 2026-06-11): tras sincronizar un `Caddyfile` nuevo,
