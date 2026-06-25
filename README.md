@@ -5,7 +5,7 @@
 **Pipeline de ingestión RAG (Retrieval-Augmented Generation) de nivel producción** para procesar, fragmentar y vectorizar documentos PDF corporativos a gran escala, con búsqueda semántica de baja latencia y aislamiento estricto por inquilino (*multi-tenancy*).
 
 [![CI](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-89%20passing-22c55e)](test/)
+[![Tests](https://img.shields.io/badge/tests-134%20passing-22c55e)](test/)
 [![Ruby](https://img.shields.io/badge/Ruby-3.3.11-CC342D?logo=ruby&logoColor=white)](.ruby-version)
 [![Rails](https://img.shields.io/badge/Rails-8.1-CC0000?logo=rubyonrails&logoColor=white)](Gemfile)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](config/database.yml)
@@ -28,14 +28,14 @@ El objetivo es demostrar habilidades avanzadas de **ingeniería de datos, concur
 
 ## ✨ Características destacadas
 
-- 🔎 **Búsqueda híbrida + reranking**: vectorial (`pgvector`/**HNSW**) + full-text en español fusionadas con **RRF**, y una 2ª etapa de reranking *(retrieve-then-rerank)*. Embeddings con **Gemini** (gratis) y fallback determinista.
+- 🔎 **Búsqueda híbrida + reranking**: vectorial (`pgvector`/**HNSW**) + full-text en español fusionadas con **RRF**, y una 2ª etapa de reranking *(retrieve-then-rerank)*. Embeddings **neuronales locales** (ONNX `e5-small`, sin API ni rate limit); Gemini/OpenAI opcionales y fallback determinista.
 - 🏢 **Multi-tenancy** con aislamiento estricto por `tenant_id` en cada consulta.
 - 🔐 **API keys cifradas en reposo** (Lockbox) con búsqueda por *blind index*.
 - ⚙️ **Pipeline de ingestión asíncrono** (Solid Queue): `pdftotext` → chunking → embeddings por lotes, con reintentos y *circuit breaker*.
 - 💬 **Respuestas en streaming (SSE)** token por token, citando documento y página.
 - 🚦 **Rate limiting por tenant** (rack-attack) y **caché distribuida** (Solid Cache sobre PostgreSQL).
 - 📈 **Observabilidad (3 pilares)**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics` + **tracing distribuido OpenTelemetry** (spans `rag.*`, exporter OTLP).
-- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 89 tests.
+- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 134 tests.
 - 📐 **Evals de calidad RAG**: golden dataset + recall@5/MRR/keywords como **gate en CI** (con embeddings reales de Gemini: **recall 1.0**).
 
 ## 🏗️ Arquitectura
@@ -87,7 +87,7 @@ El sistema se divide en dos flujos críticos diseñados para maximizar rendimien
 - **Background jobs:** Solid Queue (sobre PostgreSQL)
 - **Caché:** Solid Cache
 - **Servidor:** Puma
-- **IA / RAG:** `langchainrb` (chunking) + `ruby-openai` (embeddings `text-embedding-3-small` 1536-d)
+- **IA / RAG:** `langchainrb` (chunking) + `informers`/ONNX (embeddings locales `multilingual-e5-small` 384-d + reranker neural) — `ruby-openai`/Gemini opcionales
 - **Seguridad:** `lockbox` + `blind_index`
 - **Extracción PDF:** `pdftotext` (Poppler)
 - **Despliegue:** Docker + Kamal
@@ -100,7 +100,7 @@ Todas las tablas usan **claves primarias UUID** (`gen_random_uuid()` vía `pgcry
 |--------|--------------------|
 | **`Tenant`** | `id` (uuid), `name`, `api_key` (cifrado), `api_key_bidx` (blind index), `api_key_id` |
 | **`Document`** | `id` (uuid), `tenant_id` (FK), `filename`, `status` (enum: `processing`/`completed`/`failed`), `metadata` (jsonb) |
-| **`DocumentChunk`** | `id` (uuid), `document_id` (FK), `content` (text), `embedding` (`vector(1536)` + índice HNSW), `page_number` |
+| **`DocumentChunk`** | `id` (uuid), `document_id` (FK), `content` (text), `embedding` (`vector(384)` + índice HNSW), `page_number` |
 
 ## 🔌 API
 
@@ -209,13 +209,14 @@ bin/dev
 
 | Variable | Descripción |
 |----------|-------------|
-| `GEMINI_API_KEY` | Embeddings reales con **Google Gemini** (`gemini-embedding-001`, capa gratuita). Es el proveedor preferido; al activarla, **re-indexa el corpus** con `bin/rails rag:reembed`. |
+| `EMBEDDER` | `local` usa el **embedder neural local** (ONNX, `Xenova/multilingual-e5-small`, 384d) — sin API, sin rate limit, gratis; **tiene prioridad** sobre las API keys. Al activarlo (o cambiar de espacio), **re-indexa el corpus** con `bin/rails rag:reembed`. |
+| `GEMINI_API_KEY` | Embeddings reales con **Google Gemini** (`gemini-embedding-001`, capa gratuita). Alternativa por API; al activarla, **re-indexa el corpus** con `bin/rails rag:reembed`. |
 | `OPENAI_API_KEY` | Embeddings y respuestas con OpenAI (alternativa). **Sin ningún proveedor, el sistema usa fallbacks deterministas** para que todo el pipeline funcione localmente sin secretos. |
 | `RERANKER` | `neural` activa el cross-encoder ONNX local (opt-in); por defecto, reranker léxico (ver sección de búsqueda). |
 | `LOCKBOX_MASTER_KEY` / `BLIND_INDEX_MASTER_KEY` | Alternativa a las credenciales de Rails para entornos en contenedor. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Activa el envío de trazas OpenTelemetry vía OTLP al colector/backend indicado (Jaeger, Grafana Tempo, Honeycomb…). Sin ella no se exporta nada (en desarrollo se imprime en consola). |
 
-**Prioridad de proveedor de embeddings:** `GEMINI_API_KEY` → `OPENAI_API_KEY` → fallback determinista (bag-of-words). Los tres producen vectores de **1536 dims** (Gemini vía `outputDimensionality`), así que no hay migración de esquema al cambiar.
+**Prioridad de proveedor de embeddings:** `EMBEDDER=local` (ONNX local) → `GEMINI_API_KEY` → `OPENAI_API_KEY` → fallback determinista (bag-of-words). Todos producen vectores de **384 dims** (la dimensión nativa del modelo local; Gemini vía `outputDimensionality`, OpenAI vía `dimensions`), así que comparten una única columna `vector(384)`. **Cambiar de proveedor implica re-embeber** (`rag:reembed`), ya que cada modelo vive en su propio espacio. El embedder local es el **default en producción** (mata el rate limit del free tier de Gemini que saturaba el bulk — ver [AUDIT.md](AUDIT.md)).
 
 ## 🧪 Crear un tenant y probar
 
@@ -354,6 +355,7 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] **Feedback 👍/👎** por respuesta (`POST /api/v1/feedback`), reflejado en la analítica
 - [x] **Idempotencia de embeddings** — reuso por `content_hash` + provider; re-ingestar contenido sin cambios no re-embebe (ahorra cuota Gemini)
 - [x] **Chunking estructural** — segmenta por párrafos (con reflow) y secciones (encabezados); no mezcla secciones y solo parte por caracteres lo que excede 500. Evals sin cambios en el corpus limpio; gana robustez con PDFs reales desordenados
+- [x] **Embedder neural local (ONNX)** — `EMBEDDER=local` usa `Xenova/multilingual-e5-small` (384d) vía `informers`/ONNX, reemplazando al free tier de Gemini (que saturaba el bulk con 429). Sin API, sin rate limit, gratis; medido recall/MRR **1.0** en el golden set (iguala a Gemini, supera al BoW), 64ms/embed. Implicó migrar el esquema a `vector(384)` — ver [AUDIT.md](AUDIT.md)
 
 ### Próximos pasos (opcionales, ordenados por valor)
 

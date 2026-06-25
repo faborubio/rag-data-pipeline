@@ -17,14 +17,14 @@ class Rag::EmbedderTest < ActiveSupport::TestCase
   end
 
   def gemini_body(payload)
-    { "embeddings" => Array.new(payload[:requests].size) { { "values" => Array.new(1536, 0.01) } } }
+    { "embeddings" => Array.new(payload[:requests].size) { { "values" => Array.new(Rag::EMBEDDING_DIMENSIONS, 0.01) } } }
   end
-  test "produces one 1536-dim vector per input without an API key" do
+  test "produces one EMBEDDING_DIMENSIONS-sized vector per input without an API key" do
     embedder = Rag::Embedder.new(api_key: nil, gemini_key: nil)
     vectors = embedder.embed(%w[a b c])
 
     assert_equal 3, vectors.size
-    assert vectors.all? { |v| v.size == 1536 }
+    assert vectors.all? { |v| v.size == Rag::EMBEDDING_DIMENSIONS }
   end
 
   test "fallback embeddings are deterministic" do
@@ -47,6 +47,41 @@ class Rag::EmbedderTest < ActiveSupport::TestCase
     assert_equal :gemini, Rag::Embedder.new(gemini_key: "gk", api_key: "sk").provider
     assert_equal :openai, Rag::Embedder.new(gemini_key: nil, api_key: "sk").provider
     assert_equal :fallback, Rag::Embedder.new(gemini_key: nil, api_key: nil).provider
+  end
+
+  test "EMBEDDER=local selects the local provider over any API key" do
+    assert_equal :local, Rag::Embedder.new(local: true, gemini_key: "gk", api_key: "sk").provider
+    assert_equal :gemini, Rag::Embedder.new(local: false, gemini_key: "gk").provider
+  end
+
+  # Captures what reaches the local model so we can assert the e5 prefixes without
+  # loading the ONNX model. Returns correctly-sized dummy vectors.
+  class CapturingLocal
+    attr_reader :seen
+    def initialize = (@seen = [])
+    def embed(texts)
+      @seen.concat(texts)
+      texts.map { Array.new(Rag::EMBEDDING_DIMENSIONS, 0.0) }
+    end
+  end
+
+  class LocalStub < Rag::Embedder
+    def initialize(capture)
+      super(local: true, gemini_key: nil, api_key: nil)
+      @capture = capture
+    end
+    def local_embedder = @capture
+  end
+
+  test "the local provider applies e5 query/passage prefixes by kind" do
+    capture = CapturingLocal.new
+    embedder = LocalStub.new(capture)
+
+    embedder.embed_one("rotonda", kind: :query)
+    embedder.embed([ "el manual dice" ], kind: :passage)
+    embedder.embed_one("sin kind explicito") # defaults to passage
+
+    assert_equal [ "query: rotonda", "passage: el manual dice", "passage: sin kind explicito" ], capture.seen
   end
 
   test "handles batches larger than the batch size" do
@@ -75,7 +110,7 @@ class Rag::EmbedderTest < ActiveSupport::TestCase
     embedder = Rag::Embedder.new(api_key: nil, gemini_key: nil)
     vector = embedder.embed_one("¡¿?!")
 
-    assert_equal 1536, vector.size
+    assert_equal Rag::EMBEDDING_DIMENSIONS, vector.size
     assert_in_delta 1.0, Math.sqrt(vector.sum { |x| x * x }), 1e-9
   end
 
@@ -92,7 +127,7 @@ class Rag::EmbedderTest < ActiveSupport::TestCase
     vectors = embedder.embed([ "hola" ])
 
     assert_equal 1, vectors.size
-    assert_equal 1536, vectors.first.size
+    assert_equal Rag::EMBEDDING_DIMENSIONS, vectors.first.size
     assert_equal 2, calls, "should retry once after the 429"
     assert_equal 1, embedder.sleeps.size, "should back off once before retrying"
   end

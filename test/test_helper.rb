@@ -11,7 +11,7 @@ module ActiveSupport
     # No fixtures: encrypted (Lockbox) and vector columns are best created
     # through the models inside each test's setup.
 
-    # A normalized 1536-dim vector for embedding assertions.
+    # A normalized EMBEDDING_DIMENSIONS-sized vector for embedding assertions.
     def sample_vector(seed = 1)
       rng = Random.new(seed)
       vector = Array.new(Rag::EMBEDDING_DIMENSIONS) { rng.rand(-1.0..1.0) }

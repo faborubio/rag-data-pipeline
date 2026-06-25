@@ -3,11 +3,11 @@ require "net/http"
 require "json"
 
 module Rag
-  # Turns texts into 1536-dim embeddings, in batches of 20 to minimize network
-  # calls (spec), guarded by a circuit breaker. Provider is chosen by which key
-  # is present: Gemini (free tier, gemini-embedding-001) > OpenAI > a
-  # deterministic bag-of-words fallback so the pipeline (and the CI evals) run
-  # locally with no external dependency at all.
+  # Turns texts into Rag::EMBEDDING_DIMENSIONS-sized embeddings, in batches of 20
+  # to minimize network calls (spec), guarded by a circuit breaker. Provider:
+  # EMBEDDER=local (local ONNX, default) > Gemini > OpenAI > a deterministic
+  # bag-of-words fallback, so the pipeline (and the CI evals) run locally with no
+  # external dependency at all.
   class Embedder
     # Raised when a provider replies 429 (rate limit). Retried with backoff
     # instead of failing the whole ingest — the free tier limits requests per
@@ -32,41 +32,48 @@ module Rag
                       "#{Rag::GEMINI_EMBEDDING_MODEL}:batchEmbedContents".freeze
 
     def initialize(gemini_key: ENV["GEMINI_API_KEY"], api_key: ENV["OPENAI_API_KEY"],
+                   local: ENV["EMBEDDER"] == "local",
                    breaker: Rag.embedding_breaker,
                    throttle: (ENV["GEMINI_THROTTLE_SECONDS"] || 5.0).to_f)
       @gemini_key = gemini_key.presence
       @api_key = api_key.presence
+      @local = local
       @breaker = breaker
       @throttle = throttle
     end
 
     # texts: Array<String> -> Array<Array<Float>> (aligned by index)
     #
+    # `kind` tags the inputs as :query or :passage so the local e5 model can apply
+    # its asymmetric prefixes (a no-op for the other providers). Ingestion embeds
+    # passages (the default); the Read Path embeds the question with kind: :query.
+    #
     # Live providers go through a persistent embedding cache keyed by provider +
-    # content, written batch-by-batch: a paced bulk embed that gets interrupted
-    # (rate limit, crash) keeps its progress, so a re-run only embeds what's left.
-    # Batches are spaced out to stay under the free-tier per-minute limit; a
-    # single batch (e.g. one query) never waits. The deterministic fallback is
-    # local and free, so it skips the cache and the pacing entirely.
-    def embed(texts)
+    # (prefixed) content, written batch-by-batch: a paced bulk embed that gets
+    # interrupted (rate limit, crash) keeps its progress, so a re-run only embeds
+    # what's left. Batches are spaced out to stay under the free-tier per-minute
+    # limit; a single batch (e.g. one query) never waits. The deterministic
+    # fallback is local and free, so it skips the cache and the pacing entirely.
+    def embed(texts, kind: :passage)
       texts = Array(texts)
       return [] if texts.empty?
 
       prov = provider
-      return texts.map { |text| fake_embedding(text) } if prov == :fallback
+      inputs = texts.map { |text| prepare_input(prov, kind, text) }
+      return inputs.map { |text| fake_embedding(text) } if prov == :fallback
 
-      keys = texts.map { |text| cache_key(prov, text) }
+      keys = inputs.map { |text| cache_key(prov, text) }
       cached = Rails.cache.read_multi(*keys.uniq)
-      result = Array.new(texts.size)
+      result = Array.new(inputs.size)
       misses = []
-      texts.each_index do |i|
+      inputs.each_index do |i|
         hit = cached[keys[i]]
         hit ? result[i] = hit : misses << i
       end
 
       misses.each_slice(BATCH_SIZE).with_index do |index_batch, batch_no|
         throttle if batch_no.positive? && prov == :gemini
-        vectors = embed_batch(index_batch.map { |i| texts[i] })
+        vectors = embed_batch(index_batch.map { |i| inputs[i] })
         index_batch.each_with_index do |i, j|
           result[i] = vectors[j]
           Rails.cache.write(keys[i], vectors[j], expires_in: EMBEDDING_CACHE_TTL)
@@ -75,8 +82,8 @@ module Rag
       result
     end
 
-    def embed_one(text)
-      embed([ text ]).first
+    def embed_one(text, kind: :passage)
+      embed([ text ], kind: kind).first
     end
 
     def live?
@@ -84,7 +91,10 @@ module Rag
     end
 
     # Which backend a query will actually use — surfaced by the evals report.
+    # EMBEDDER=local wins over the API keys: the local model replaces Gemini as
+    # the embedding space (one space per column), free of any rate limit.
     def provider
+      return :local if @local
       return :gemini if @gemini_key.present?
       return :openai if @api_key.present?
 
@@ -95,10 +105,25 @@ module Rag
 
     def embed_batch(batch)
       case provider
+      when :local  then local_embedder.embed(batch)
       when :gemini then @breaker.run { with_rate_limit_retry { gemini_embeddings(batch) } }
       when :openai then @breaker.run { with_rate_limit_retry { openai_embeddings(batch) } }
       else batch.map { |text| fake_embedding(text) }
       end
+    end
+
+    # Memoized local ONNX embedder (no network, no breaker, no rate limit).
+    def local_embedder
+      @local_embedder ||= LocalEmbedder.new
+    end
+
+    # Per-provider input prep. The local e5 model wants asymmetric prefixes
+    # ("query: " / "passage: "); every other provider takes the text verbatim, so
+    # this is a no-op for them (and keeps their cache keys unchanged).
+    def prepare_input(prov, kind, text)
+      return text unless prov == :local && LocalEmbedder::USES_E5_PREFIXES
+
+      "#{kind == :query ? 'query' : 'passage'}: #{text}"
     end
 
     # Retries a rate-limited (429) call with exponential backoff + jitter. Only
@@ -133,7 +158,8 @@ module Rag
       "rag:emb:#{provider}:#{Digest::SHA256.hexdigest(text)}"
     end
 
-    # One batched call to Gemini; outputDimensionality pins the result to 1536.
+    # One batched call to Gemini; outputDimensionality pins the result to
+    # Rag::EMBEDDING_DIMENSIONS so it lands in the same vector space as the others.
     def gemini_embeddings(batch)
       requests = batch.map do |text|
         { model: "models/#{Rag::GEMINI_EMBEDDING_MODEL}",

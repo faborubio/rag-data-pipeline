@@ -2,13 +2,17 @@ namespace :rag do
   desc "Re-embed every stored chunk with the current embedder (run after switching provider)"
   task reembed: :environment do
     embedder = Rag::Embedder.new
-    puts "Re-embedding with provider: #{embedder.provider}"
+    provider = embedder.provider.to_s
+    puts "Re-embedding with provider: #{provider}"
     total = DocumentChunk.count
     done = 0
     DocumentChunk.in_batches(of: Rag::Embedder::BATCH_SIZE) do |batch|
       chunks = batch.to_a
       vectors = embedder.embed(chunks.map(&:content))
-      chunks.each_with_index { |chunk, i| chunk.update_column(:embedding, vectors[i]) }
+      # Stamp the provider alongside the vector so the ingestor's content_hash +
+      # provider idempotency stays correct (otherwise a re-ingest would see a
+      # stale provider and needlessly re-embed, or reuse a vector from the wrong space).
+      chunks.each_with_index { |chunk, i| chunk.update_columns(embedding: vectors[i], embedding_provider: provider) }
       done += chunks.size
       puts "  #{done}/#{total}"
     end

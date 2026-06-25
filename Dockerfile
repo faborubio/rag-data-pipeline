@@ -66,11 +66,14 @@ USER 1000:1000
 COPY --chown=rails:rails --from=build "${BUNDLE_PATH}" "${BUNDLE_PATH}"
 COPY --chown=rails:rails --from=build /rails /rails
 
-# Pre-download the multilingual reranker (quantized ONNX, ~267MB) into the
-# rails user's informers cache, so a RERANKER=neural deploy doesn't fetch the
-# model from HuggingFace on the first query. Keep in sync with
-# Rag::NeuralReranker::MODEL. Drop the full-precision variant to save space.
-RUN bundle exec ruby -e 'require "informers"; Informers.pipeline("reranking", "jinaai/jina-reranker-v2-base-multilingual", quantized: true)' && \
+# Pre-download the ONNX models (quantized) into the rails user's informers cache,
+# so neither a RERANKER=neural nor an EMBEDDER=local deploy fetches from
+# HuggingFace on the first query. Keep model ids in sync with
+# Rag::NeuralReranker::MODEL and Rag::LocalEmbedder::MODEL. Drop the
+# full-precision variants to save space.
+RUN bundle exec ruby -e 'require "informers"; \
+      Informers.pipeline("reranking", "jinaai/jina-reranker-v2-base-multilingual", quantized: true); \
+      Informers.pipeline("embedding", "Xenova/multilingual-e5-small", quantized: true)' && \
     find "$HOME/.cache/informers" -name "model.onnx" -delete || true
 
 # Entrypoint prepares the database.

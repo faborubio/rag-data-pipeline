@@ -10,7 +10,9 @@ class RagQualityTest < ActiveSupport::TestCase
   def self.report
     @report ||= Rag::Evals::Runner.new(
       query_service: Rag::QueryService.new(
-        embedder: Rag::Embedder.new(api_key: nil),
+        # Pin the deterministic fallback tier: no exported GEMINI/OPENAI key or
+        # EMBEDDER=local can make `rails test` hit the network or load a model.
+        embedder: Rag::Embedder.new(api_key: nil, gemini_key: nil, local: false),
         llm: Rag::Llm.new(api_key: nil)
       )
     ).run

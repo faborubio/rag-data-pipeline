@@ -1,9 +1,11 @@
 # Namespace + shared, process-local circuit breakers for the external AI calls.
 module Rag
-  # 1536 dims. OpenAI text-embedding-3-small (per spec) is native 1536; Gemini
-  # gemini-embedding-001 is asked for 1536 via outputDimensionality, so either
-  # provider fits the existing vector(1536) column with no migration.
-  EMBEDDING_DIMENSIONS = 1536
+  # 384 dims — the native size of the local ONNX embedder (LocalEmbedder, the
+  # default provider). Every provider lands in this one space so a single
+  # vector(384) column + HNSW index serves all of them: the BoW fallback builds
+  # 384-d vectors, Gemini is asked for 384 via outputDimensionality, and OpenAI
+  # via `dimensions`. Changing this requires a schema migration + re-embed.
+  EMBEDDING_DIMENSIONS = 384
   EMBEDDING_MODEL = "text-embedding-3-small".freeze
   GEMINI_EMBEDDING_MODEL = "gemini-embedding-001".freeze
   CHAT_MODEL = "gpt-4o-mini".freeze

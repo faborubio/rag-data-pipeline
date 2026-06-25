@@ -125,7 +125,7 @@ module Rag
     # when the top reranker score says nothing in the corpus is relevant.
     def retrieve(tenant:, question:, document_ids:)
       query_vector = measure(:embed_ms) do
-        Rag.tracer.in_span("rag.embed") { @embedder.embed_one(question) }
+        Rag.tracer.in_span("rag.embed") { @embedder.embed_one(question, kind: :query) }
       end
 
       # Hybrid retrieval: fuse dense (cosine) and lexical (full-text) candidates

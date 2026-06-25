@@ -86,7 +86,7 @@ CREATE TABLE public.document_chunks (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     document_id uuid NOT NULL,
     content text NOT NULL,
-    embedding public.vector(1536),
+    embedding public.vector(384),
     page_number integer,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
@@ -1121,6 +1121,7 @@ ALTER TABLE ONLY public.solid_queue_scheduled_executions
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260625120000'),
 ('20260615140000'),
 ('20260615130000'),
 ('20260615120000'),

@@ -12,18 +12,18 @@ class DocumentChunkTest < ActiveSupport::TestCase
     assert_includes chunk.errors[:content], "can't be blank"
   end
 
-  test "persists a 1536-dim embedding" do
+  test "persists an EMBEDDING_DIMENSIONS-sized embedding" do
     chunk = @document.document_chunks.create!(content: "hola", embedding: sample_vector, page_number: 1)
-    assert_equal 1536, chunk.reload.embedding.size
+    assert_equal Rag::EMBEDDING_DIMENSIONS, chunk.reload.embedding.size
   end
 
   test "nearest_neighbors orders by cosine distance" do
-    v1 = Array.new(1536, 0.0); v1[0] = 1.0
-    v2 = Array.new(1536, 0.0); v2[1] = 1.0
+    v1 = Array.new(Rag::EMBEDDING_DIMENSIONS, 0.0); v1[0] = 1.0
+    v2 = Array.new(Rag::EMBEDDING_DIMENSIONS, 0.0); v2[1] = 1.0
     near = @document.document_chunks.create!(content: "cercano", embedding: v1, page_number: 1)
     @document.document_chunks.create!(content: "lejano", embedding: v2, page_number: 2)
 
-    query = Array.new(1536, 0.0); query[0] = 0.9
+    query = Array.new(Rag::EMBEDDING_DIMENSIONS, 0.0); query[0] = 0.9
     results = DocumentChunk.nearest_neighbors(:embedding, query, distance: "cosine")
     assert_equal near, results.first
   end

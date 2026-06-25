@@ -267,3 +267,40 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
 2. **Caché semántica real** — diferida a propósito: el embed (lo que ahorraría) es la
    parte barata; el ahorro grande (rerank + LLM) recién vale con LLM de pago, y trae
    riesgo de hit incorrecto. Revisar junto con la generación real.
+3. **Embedder neural local (ONNX) — explorando (decidido 2026-06-25).** Hoy los
+   embeddings van por API (Gemini free tier → OpenAI → fallback BoW). El free tier de
+   Gemini **satura con el bulk** (429 + tope diario), lo que vuelve inviable cargar un
+   corpus grande (p.ej. el libro de 339 págs / 2075 chunks) a la demo de prod. La
+   evolución natural: un embedder **neural local vía ONNX**, reusando el runtime
+   `informers` que **ya está en el repo** (hoy solo lo usa el reranker jina). Mata el
+   rate limit (gratis, sin cuota, embebe miles de chunks en minutos) y mejora la
+   calidad semántica vs. el BoW. Candidatos multilingües: `intfloat/multilingual-e5-small`
+   (384d, liviano), `intfloat/multilingual-e5-base` (768d), `BAAI/bge-m3` (1024d, sin
+   prefijos query/passage).
+   - **Requerimientos:** (a) nuevo provider `:local` en `Embedder` (mismo patrón que
+     `NeuralReranker.pipeline`, sin throttle/breaker); (b) **migración de dimensión**
+     del esquema `vector(1536)` → dim del modelo + recrear índice HNSW + `rake rag:reembed`
+     (corpus de prod = 2 chunks, barato); (c) bakear el modelo en la imagen (patrón jina);
+     (d) tier de evals medido nuevo.
+   - **Riesgos (medir ANTES de migrar):** **RAM del VPS** (jina ~267MB + embedder
+     ~100-150MB en 3.8GB → cuidar OOM del contenedor `web`); **calidad** del modelo
+     local podría no superar a Gemini (gate de decisión, no trámite); cold-start del
+     modelo (warm-up al boot); build de imagen más pesado. **No afecta** CI (sigue BoW
+     determinista), reranker, abstención ni full-text (independientes del embedder).
+   - **Plan:** medir primero (recall/MRR sobre golden set + RAM/latencia) en local sin
+     tocar prod; con esos números decidir modelo/dimensión y recién entonces migrar.
+   - **Medición (2026-06-25, gate superado).** Smoke test con `informers` (los repos
+     `intfloat/*` no traen ONNX → usar los **`Xenova/*`**). Señal densa pura sobre el
+     golden set (coseno en memoria, sin migrar el esquema):
+
+     | Embedder | recall@5 | MRR | embed (1 CPU) | RAM aprox |
+     |---|---|---|---|---|
+     | BoW solo-vector (baseline) | 0.917 | 0.826 | instant | 0 |
+     | Gemini híbrido (prod actual) | 1.000 | 0.948 | ~1.3s (red) | 0 |
+     | **`Xenova/multilingual-e5-small`** (384d) | **1.000** | **1.000** | **64 ms** | ~500MB |
+     | `Xenova/bge-m3` (1024d) | 1.000 | 1.000 | 1349 ms | ~650MB |
+
+     **Decisión: e5-small (384d).** Recall/MRR perfectos en español (iguala a Gemini,
+     supera al BoW) con la menor latencia y RAM; bge-m3 no aporta calidad y cuesta 20×
+     en latencia. Pendiente de confirmar: **RSS real en el VPS** (e5-small ~500MB +
+     jina ~267MB en 3.8GB) al desplegar — único riesgo vivo tras el gate.

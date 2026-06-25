@@ -17,7 +17,7 @@ class Rag::IngestorTest < ActiveSupport::TestCase
     assert_operator count, :>=, 2
     assert_equal count, @document.document_chunks.count
     assert_equal [ 1, 2 ], @document.document_chunks.distinct.pluck(:page_number).sort
-    assert_equal 1536, @document.document_chunks.first.embedding.size
+    assert_equal Rag::EMBEDDING_DIMENSIONS, @document.document_chunks.first.embedding.size
   ensure
     File.delete(path) if path && File.exist?(path)
   end
@@ -30,7 +30,7 @@ class Rag::IngestorTest < ActiveSupport::TestCase
 
     assert_operator count, :>=, 1
     assert_equal count, @document.document_chunks.count
-    assert_equal 1536, @document.document_chunks.first.embedding.size
+    assert_equal Rag::EMBEDDING_DIMENSIONS, @document.document_chunks.first.embedding.size
   ensure
     File.delete(path) if path && File.exist?(path)
   end
