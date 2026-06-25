@@ -12,6 +12,8 @@ Rails.application.routes.draw do
     namespace :v1 do
       # Write Path: upload a PDF (async ingestion) and inspect its status.
       resources :documents, only: %i[index create show]
+      # Upload storage quota for the authenticated tenant (used/budget/available).
+      get "storage", to: "storage#show"
       # Read Path: synchronous RAG query.
       post "chats/query", to: "chats#query", as: :chats_query
       # Public demo bootstrap: returns the read-only demo tenant's API key.

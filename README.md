@@ -213,6 +213,8 @@ bin/dev
 | `GEMINI_API_KEY` | Embeddings reales con **Google Gemini** (`gemini-embedding-001`, capa gratuita). Alternativa por API; al activarla, **re-indexa el corpus** con `bin/rails rag:reembed`. |
 | `OPENAI_API_KEY` | Embeddings y respuestas con OpenAI (alternativa). **Sin ningún proveedor, el sistema usa fallbacks deterministas** para que todo el pipeline funcione localmente sin secretos. |
 | `RERANKER` | `neural` activa el cross-encoder ONNX local (opt-in); por defecto, reranker léxico (ver sección de búsqueda). |
+| `STORAGE_BUDGET_MB` | Cuota de subida por tenant (default **500**). Salvaguarda lógica del VPS (no es el disco); la demo muestra un contador usado/disponible y rechaza uploads que la excedan (`GET /api/v1/storage`). |
+| `MAX_UPLOAD_MB` | Tamaño máximo por archivo subido (default **160**). |
 | `LOCKBOX_MASTER_KEY` / `BLIND_INDEX_MASTER_KEY` | Alternativa a las credenciales de Rails para entornos en contenedor. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Activa el envío de trazas OpenTelemetry vía OTLP al colector/backend indicado (Jaeger, Grafana Tempo, Honeycomb…). Sin ella no se exporta nada (en desarrollo se imprime en consola). |
 

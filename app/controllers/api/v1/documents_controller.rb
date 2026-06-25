@@ -27,8 +27,12 @@ module Api
         return render_error("file is required", :unprocessable_entity)        if file.blank?
         return render_error("only PDF, TXT and Markdown files are allowed", :unprocessable_entity) unless accepted?(file)
         return render_error("file exceeds the #{MAX_SIZE / 1.megabyte}MB limit", :unprocessable_entity) if file.size > MAX_SIZE
+        return render_error("storage quota exceeded", :unprocessable_entity) unless current_tenant.room_for?(file.size)
 
-        document = current_tenant.documents.create!(filename: file.original_filename, status: :processing)
+        document = current_tenant.documents.create!(
+          filename: file.original_filename, status: :processing,
+          metadata: { byte_size: file.size }
+        )
         path = store(file)
         DocumentIngestionJob.perform_later(document.id, path.to_s)
 

@@ -304,3 +304,18 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
      supera al BoW) con la menor latencia y RAM; bge-m3 no aporta calidad y cuesta 20×
      en latencia. Pendiente de confirmar: **RSS real en el VPS** (e5-small ~500MB +
      jina ~267MB en 3.8GB) al desplegar — único riesgo vivo tras el gate.
+
+## Capacidad del VPS y cuota de subida (medido 2026-06-25)
+
+Antes de habilitar/limitar subidas se midió el VPS: disco **7.1 GB libres** de 24,
+RAM **~2.1 GB disponibles sin swap**, y peso real **~5 KB/chunk** (≈4.8 MB por 1000
+chunks, ya con embeddings 384d → 4× menos que con 1536d). El disco aguanta **miles**
+de PDFs (~400 libros de 339 págs, o ~3-4k PDFs de 30-50 págs); **no es el cuello** —
+lo es la **RAM en procesamiento**, y los PDFs ni se acumulan (se borran tras ingerir).
+
+Por eso un contador de **disco crudo** sería engañoso (mostraría "espacio infinito").
+Se añadió una **cuota lógica por tenant** (`STORAGE_BUDGET_MB`, default 500): mide
+bytes de archivo subido (`Document.metadata.byte_size`), el upload valida contra ella
+(`Tenant#room_for?` → 422 si excede), y `GET /api/v1/storage` expone
+usado/presupuesto/disponible para el contador de la demo. Salvaguarda del VPS frente
+a abuso, no un límite de disco.

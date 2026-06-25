@@ -61,6 +61,20 @@ class Api::V1::DocumentsTest < ActionDispatch::IntegrationTest
     File.delete(fake) if fake && File.exist?(fake)
   end
 
+  test "records the uploaded file size for the storage quota" do
+    post api_v1_documents_url, params: { file: pdf_upload }, headers: auth_headers(@tenant)
+    assert_response :accepted
+    assert_operator @tenant.documents.order(:created_at).last.metadata["byte_size"].to_i, :>, 0
+  end
+
+  test "rejects an upload that would exceed the storage quota" do
+    @tenant.documents.create!(filename: "big.pdf", status: :completed,
+                              metadata: { byte_size: Tenant::STORAGE_BUDGET_MB.megabytes })
+    post api_v1_documents_url, params: { file: pdf_upload }, headers: auth_headers(@tenant)
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body)["error"], "quota"
+  end
+
   test "read-only tenants cannot upload" do
     @tenant.update!(read_only: true)
     post api_v1_documents_url, params: { file: pdf_upload }, headers: auth_headers(@tenant)

@@ -72,7 +72,11 @@
           <input id="file" type="file" accept=".pdf,.txt,.md" />
         </div>
         <button id="uploadBtn" style="width:100%" onclick="upload()">Subir e ingerir</button>
-        <div class="muted" id="uploadNote" style="margin-top:8px">PDF, TXT o Markdown (hasta 160 MB).</div>
+        <div class="muted" id="uploadNote" style="margin-top:8px">PDF, TXT o Markdown.</div>
+        <div class="muted" id="quota" style="margin-top:10px"></div>
+        <div style="height:6px;background:#0b1220;border:1px solid #334155;border-radius:999px;overflow:hidden;margin-top:6px">
+          <div id="quotaBar" style="height:100%;width:0%;background:var(--accent);transition:width .3s"></div>
+        </div>
       </div>
 
       <div class="panel" style="margin-top:14px">
@@ -125,6 +129,7 @@
         if (j.can_upload) {
           $("uploadPanel").style.display = "";
           $("headerTag").textContent = "modo local · subida habilitada · streaming · sabe cuándo no responder";
+          loadStorage();
         }
         await loadDocs();
         loadAnalytics();
@@ -164,11 +169,29 @@
     function toggle(id, on) { on ? selected.add(id) : selected.delete(id); updateSel(); }
     function updateSel(){ $("selInfo").textContent = selected.size ? `${selected.size} documento(s) seleccionado(s)` : "Selecciona documentos (completados) para preguntar."; }
 
+    // Storage quota: fills the counter/bar and gates the next upload size.
+    let maxUploadMb = Infinity;
+    async function loadStorage() {
+      if (!key()) return;
+      try {
+        const r = await fetch("/api/v1/storage", { headers: authHeaders() });
+        if (!r.ok) return;
+        const s = await r.json();
+        maxUploadMb = s.max_upload_mb;
+        const pct = s.budget_mb ? Math.min(100, Math.round(100 * s.used_mb / s.budget_mb)) : 0;
+        $("quotaBar").style.width = pct + "%";
+        $("quotaBar").style.background = pct >= 90 ? "var(--warn)" : "var(--accent)";
+        $("quota").innerHTML = `Espacio: <b>${s.used_mb}</b> / ${s.budget_mb} MB usados · puedes subir hasta <b>${s.max_upload_mb} MB</b>`;
+      } catch (e) { /* counter is best-effort */ }
+    }
+
     // Upload (writable tenant only). POSTs the file, then polls loadDocs() until
     // the new document finishes ingesting, and auto-selects it so you can ask.
     async function upload() {
       const f = $("file").files[0];
       if (!f) return alert("Elige un archivo (.pdf, .txt o .md).");
+      const mb = f.size / (1024 * 1024);
+      if (mb > maxUploadMb) return alert(`"${f.name}" pesa ${mb.toFixed(1)} MB y supera el espacio disponible (${maxUploadMb} MB).`);
       $("uploadBtn").disabled = true;
       $("uploadNote").textContent = `Subiendo ${f.name}…`;
       try {
@@ -179,6 +202,7 @@
         if (!r.ok) { $("uploadNote").textContent = "Error: " + (j.error || ("HTTP " + r.status)); return; }
         $("file").value = "";
         $("uploadNote").textContent = `“${j.filename}” en proceso…`;
+        loadStorage(); // byte_size counts from document creation
         await pollUntilReady(j.id, j.filename);
       } catch (e) {
         $("uploadNote").textContent = "Error de red: " + e.message;
