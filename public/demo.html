@@ -66,12 +66,10 @@
         <div id="sessionInfo"></div>
         <div id="authForm" style="display:none;margin-top:10px">
           <input id="email" type="email" placeholder="email" autocomplete="username" style="margin-bottom:6px" />
-          <input id="password" type="password" placeholder="contraseña (mín. 8)" autocomplete="current-password" style="margin-bottom:8px" />
-          <div class="row" style="margin-bottom:0">
-            <button onclick="submitAuth('login')" style="flex:1">Entrar</button>
-            <button onclick="submitAuth('signup')" style="flex:1;background:#0b1220;border:1px solid #334155">Crear cuenta</button>
-          </div>
+          <input id="password" type="password" placeholder="contraseña" autocomplete="current-password" style="margin-bottom:8px" />
+          <button onclick="submitAuth()" style="width:100%">Entrar</button>
           <div class="muted" id="authNote" style="margin-top:8px"></div>
+          <div class="muted" style="margin-top:8px">Prueba como <b>visitante</b>: <code>visitante@demo.local</code> / <code>visita1234</code></div>
         </div>
       </div>
 
@@ -146,12 +144,17 @@
 
       if (savedKey) {
         $("apiKey").value = savedKey;
-        setSessionUI(savedEmail);
-        $("demoTitle").textContent = "Tu espacio";
-        $("demoNote").innerHTML = `Sesión de <b>${escapeHtml(savedEmail)}</b>. Sube tus documentos (PDF/TXT/MD) y pregúntales.`;
-        $("headerTag").textContent = "sesión personal · subida habilitada · streaming · sabe cuándo no responder";
-        $("uploadPanel").style.display = "";
-        loadStorage();
+        const role = localStorage.getItem("ragRole") || "visitor";
+        const isAdmin = role === "admin";
+        setSessionUI(savedEmail, role);
+        $("demoTitle").textContent = isAdmin ? "Corpus (admin)" : "Corpus de la demo";
+        $("demoNote").innerHTML = isAdmin
+          ? `Sesión <b>admin</b> (${escapeHtml(savedEmail)}). Sube documentos al corpus y pregúntales.`
+          : `Sesión <b>visitante</b> (${escapeHtml(savedEmail)}). Consulta el corpus curado — o algo fuera de tema para ver cómo <b>se abstiene</b>.`;
+        $("headerTag").textContent = isAdmin
+          ? "admin · curar corpus · streaming · sabe cuándo no responder"
+          : "visitante · solo lectura · streaming · sabe cuándo no responder";
+        if (isAdmin) { $("uploadPanel").style.display = ""; loadStorage(); }
         await loadDocs();
         loadAnalytics();
         return;
@@ -175,21 +178,22 @@
       }
     }
 
-    function setSessionUI(email) {
+    function setSessionUI(email, role) {
       if (email) {
-        $("sessionInfo").innerHTML = `Sesión: <b>${escapeHtml(email)}</b> · <a href="#" onclick="logout();return false" style="color:var(--accent)">salir</a>`;
+        const tag = role === "admin" ? " · admin" : " · visitante";
+        $("sessionInfo").innerHTML = `Sesión: <b>${escapeHtml(email)}</b>${tag} · <a href="#" onclick="logout();return false" style="color:var(--accent)">salir</a>`;
         $("authForm").style.display = "none";
       } else {
-        $("sessionInfo").innerHTML = `<button onclick="toggleAuth()" style="width:100%">Entrar / Registrarse</button>`;
+        $("sessionInfo").innerHTML = `<button onclick="toggleAuth()" style="width:100%">Entrar</button>`;
       }
     }
     function toggleAuth() { const f = $("authForm"); f.style.display = f.style.display === "none" ? "" : "none"; }
 
-    async function submitAuth(mode) {
+    async function submitAuth() {
       const email = $("email").value.trim(), password = $("password").value;
       if (!email || !password) { $("authNote").textContent = "Email y contraseña requeridos."; return; }
       try {
-        const r = await fetch(mode === "signup" ? "/api/v1/signup" : "/api/v1/login", {
+        const r = await fetch("/api/v1/login", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password })
         });
@@ -197,13 +201,14 @@
         if (!r.ok) { $("authNote").textContent = j.error || ("Error " + r.status); return; }
         localStorage.setItem("ragApiKey", j.api_key);
         localStorage.setItem("ragEmail", j.email);
+        localStorage.setItem("ragRole", j.role);
         $("password").value = ""; $("authNote").textContent = "";
         await initSession();
       } catch (e) { $("authNote").textContent = "Error de red: " + e.message; }
     }
 
     function logout() {
-      localStorage.removeItem("ragApiKey"); localStorage.removeItem("ragEmail");
+      ["ragApiKey", "ragEmail", "ragRole"].forEach(k => localStorage.removeItem(k));
       initSession();
     }
 

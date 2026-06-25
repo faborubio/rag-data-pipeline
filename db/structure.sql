@@ -579,7 +579,11 @@ CREATE TABLE public.users (
     password_digest character varying NOT NULL,
     tenant_id uuid NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
+    updated_at timestamp(6) without time zone NOT NULL,
+    role character varying DEFAULT 'visitor'::character varying NOT NULL,
+    api_key_id character varying,
+    api_key_ciphertext text,
+    api_key_bidx character varying
 );
 
 
@@ -1079,6 +1083,13 @@ CREATE UNIQUE INDEX index_tenants_on_api_key_bidx ON public.tenants USING btree 
 
 
 --
+-- Name: index_users_on_api_key_bidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_users_on_api_key_bidx ON public.users USING btree (api_key_bidx);
+
+
+--
 -- Name: index_users_on_email; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1179,6 +1190,7 @@ ALTER TABLE ONLY public.solid_queue_scheduled_executions
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260625140000'),
 ('20260625130000'),
 ('20260625120000'),
 ('20260615140000'),

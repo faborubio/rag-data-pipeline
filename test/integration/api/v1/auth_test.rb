@@ -1,64 +1,67 @@
 require "test_helper"
 
 class Api::V1::AuthTest < ActionDispatch::IntegrationTest
-  test "signup creates a user with their own writable tenant and returns its api key" do
-    assert_difference -> { User.count } => 1, -> { Tenant.count } => 1 do
-      post api_v1_signup_url, params: { email: "a@b.com", password: "secret123" }, as: :json
-    end
-    assert_response :created
-    body = JSON.parse(response.body)
-    assert_equal "a@b.com", body["email"]
-
-    user = User.find_by(email: "a@b.com")
-    assert_not user.tenant.read_only?, "the user's tenant must be writable"
-    assert_equal user.tenant.api_key, body["api_key"]
+  setup do
+    # Two fixed accounts sharing one read-only corpus tenant (admin curates).
+    @corpus = Tenant.create!(name: "Demo", read_only: true)
+    @admin = User.create!(email: "admin@x.com", password: "secret123", role: "admin", tenant: @corpus)
+    @visitor = User.create!(email: "visit@x.com", password: "secret123", role: "visitor", tenant: @corpus)
+    @pdf_path = build_pdf(Rails.root.join("tmp", "auth_doc.pdf"), [ "Contenido de prueba." ])
   end
 
-  test "rejects a duplicate email (case-insensitive)" do
-    User.register(email: "dup@b.com", password: "secret123")
-    assert_no_difference -> { User.count } do
-      post api_v1_signup_url, params: { email: "DUP@b.com", password: "another1" }, as: :json
-    end
-    assert_response :unprocessable_entity
-  end
+  teardown { File.delete(@pdf_path) if @pdf_path && File.exist?(@pdf_path) }
 
-  test "rejects a short password" do
-    post api_v1_signup_url, params: { email: "x@b.com", password: "short" }, as: :json
-    assert_response :unprocessable_entity
-  end
-
-  test "login returns the api key for valid credentials" do
-    User.register(email: "log@b.com", password: "secret123")
-    post api_v1_login_url, params: { email: "log@b.com", password: "secret123" }, as: :json
+  test "login returns the user's api key and role" do
+    post api_v1_login_url, params: { email: "admin@x.com", password: "secret123" }, as: :json
     assert_response :success
-    assert JSON.parse(response.body)["api_key"].present?
+    body = JSON.parse(response.body)
+    assert_equal @admin.api_key, body["api_key"]
+    assert_equal "admin", body["role"]
   end
 
   test "login rejects wrong passwords and unknown emails alike (no enumeration)" do
-    User.register(email: "log@b.com", password: "secret123")
-    post api_v1_login_url, params: { email: "log@b.com", password: "wrongpass1" }, as: :json
+    post api_v1_login_url, params: { email: "admin@x.com", password: "wrongpass1" }, as: :json
     assert_response :unauthorized
-    post api_v1_login_url, params: { email: "nope@b.com", password: "whatever1" }, as: :json
+    post api_v1_login_url, params: { email: "nope@x.com", password: "whatever1" }, as: :json
     assert_response :unauthorized
   end
 
-  test "the issued api key authenticates protected endpoints" do
-    post api_v1_signup_url, params: { email: "auth@b.com", password: "secret123" }, as: :json
-    key = JSON.parse(response.body)["api_key"]
-    get api_v1_storage_url, headers: { "Authorization" => "Bearer #{key}" }
+  test "public signup no longer exists" do
+    post "/api/v1/signup", params: { email: "x@x.com", password: "secret123" }, as: :json
+    assert_response :not_found
+  end
+
+  test "a user key authenticates protected endpoints" do
+    get api_v1_storage_url, headers: bearer(@visitor.api_key)
     assert_response :success
   end
 
-  test "each user only sees their own documents (tenant isolation)" do
-    post api_v1_signup_url, params: { email: "u1@b.com", password: "secret123" }, as: :json
-    k1 = JSON.parse(response.body)["api_key"]
-    post api_v1_signup_url, params: { email: "u2@b.com", password: "secret123" }, as: :json
-    k2 = JSON.parse(response.body)["api_key"]
-    User.find_by(email: "u1@b.com").tenant.documents.create!(filename: "mine.pdf", status: :completed)
+  test "admin can upload to the shared corpus (role overrides read-only tenant)" do
+    assert_difference -> { @corpus.documents.count }, 1 do
+      post api_v1_documents_url, params: { file: pdf_upload }, headers: bearer(@admin.api_key)
+    end
+    assert_response :accepted
+  end
 
-    get api_v1_documents_url, headers: { "Authorization" => "Bearer #{k2}" }
-    assert_empty JSON.parse(response.body), "u2 must not see u1's documents"
-    get api_v1_documents_url, headers: { "Authorization" => "Bearer #{k1}" }
-    assert_equal %w[mine.pdf], JSON.parse(response.body).map { |d| d["filename"] }
+  test "visitor cannot upload but reads the same curated corpus" do
+    post api_v1_documents_url, params: { file: pdf_upload }, headers: bearer(@visitor.api_key)
+    assert_response :forbidden
+
+    @corpus.documents.create!(filename: "curated.pdf", status: :completed)
+    get api_v1_documents_url, headers: bearer(@visitor.api_key)
+    assert_equal %w[curated.pdf], JSON.parse(response.body).map { |d| d["filename"] }
+  end
+
+  test "the anonymous read-only tenant key cannot upload" do
+    post api_v1_documents_url, params: { file: pdf_upload }, headers: bearer(@corpus.api_key)
+    assert_response :forbidden
+  end
+
+  private
+
+  def bearer(key) = { "Authorization" => "Bearer #{key}" }
+
+  def pdf_upload
+    Rack::Test::UploadedFile.new(@pdf_path, "application/pdf")
   end
 end

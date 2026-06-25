@@ -21,7 +21,7 @@ module Api
 
       # POST /api/v1/documents  (multipart, field: file)
       def create
-        return render_error("this tenant is read-only", :forbidden) if current_tenant.read_only?
+        return render_error("this account cannot upload", :forbidden) unless can_upload?
 
         file = params[:file]
         return render_error("file is required", :unprocessable_entity)        if file.blank?
@@ -46,6 +46,16 @@ module Api
       end
 
       private
+
+      # Who may upload: a logged-in admin (role overrides the tenant's read_only,
+      # so admins curate even a read-only public corpus); otherwise — anonymous or
+      # local dev with no user — fall back to the tenant's writability. Visitors
+      # (a non-admin user) and the read-only anonymous demo are blocked.
+      def can_upload?
+        return Current.user.admin? if Current.user
+
+        !current_tenant.read_only?
+      end
 
       # Accept by extension; for PDFs also check the magic bytes so a non-PDF
       # renamed to .pdf is rejected up front instead of failing later in pdftotext.

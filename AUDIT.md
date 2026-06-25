@@ -320,19 +320,31 @@ bytes de archivo subido (`Document.metadata.byte_size`), el upload valida contra
 usado/presupuesto/disponible para el contador de la demo. Salvaguarda del VPS frente
 a abuso, no un límite de disco.
 
-## Cuentas de usuario + subida personal en la demo (2026-06-25)
+**Swap (2026-06-25).** Tras habilitar la subida pública, la ingesta con el embedder
+local llevó el contenedor `web` a ~1.78GB y el host a ~724MB libres **sin swap** →
+riesgo de OOM en picos. Mitigado con **2GB de swap** (`/swapfile`, persistido en
+`/etc/fstab`, `vm.swappiness=10` para preferir RAM y no swapear los modelos). Colchón
+efectivo ~2.8GB. Gratis, sin downtime. **Pendiente (opcional):** escalar la VM a
+2 vCPU / 8 GB (de pago) — el cuello real es el **único CPU** (cold-start ~3.6s,
+ingesta y queries compiten), no la RAM ya cubierta por el swap.
 
-Para abrir la subida en la demo pública **con seguridad** (en vez de un tenant
-compartido abierto), se añadió autenticación con **cuentas individuales**: cada
-usuario registrado obtiene **su propio tenant escribible** (espacio aislado — la
-multi-tenancy estricta ya garantiza que no vean documentos ajenos), protegido por la
-cuota por tenant. Modelo `User` (`has_secure_password`/bcrypt, `belongs_to :tenant`),
-`User.register` crea user+tenant atómico. Endpoints `POST /api/v1/signup` y
-`/api/v1/login` (heredan de `ApplicationController`, no exigen key) devuelven la API
-key del tenant del usuario; la demo la guarda en `localStorage` — mismo patrón que
-`/api/v1/demo`. Sin cookies/sesiones (fiel a API-only), sin verificación de email
-(no hay SMTP); la barrera es cuenta+contraseña (mín. 8) + **rate limit dedicado**
-por IP en las credenciales (`AUTH_RATE_LIMIT_PER_MINUTE`, default 10, mensaje de login
-genérico para no enumerar emails). La demo anónima **sigue read-only** (modo público);
-el login añade el "modo personal". 7 tests (signup, login, password corto, email
-duplicado case-insensitive, no-enumeración, aislamiento entre usuarios).
+## Cuentas de la demo: 2 roles (admin / visitante), sin registro (2026-06-25)
+
+Primero se hizo **registro abierto** (cada quien creaba cuenta + su propio tenant),
+pero deja que desconocidos suban al VPS. Se cambió a **2 cuentas fijas con roles** por
+control: **admin** (cura el corpus: sube) y **visitante** (solo consulta ese mismo
+corpus); **se quitó el signup público** (las cuentas se crean con `db:seed`).
+
+Clave de diseño: para que admin escriba y visitante lea **el mismo corpus**, ambos
+comparten **un tenant** pero con permisos distintos — y la auth por API key de tenant
+da un solo nivel de acceso. Por eso se introdujo **rol por usuario** + **auth por
+usuario**: `User` gana `enum role` y su **propia** credencial (`has_encrypted :api_key`
++ `blind_index`, igual que `Tenant`); `BaseController` resuelve la key a usuario →
+`Current.user` + `Current.tenant`, con **fallback** a `Tenant.authenticate` (anónimo
+`/api/v1/demo` y evals siguen). El **gate de subida** pasó de `tenant.read_only?` a
+`Current.user&.admin?` (el admin sube aunque el tenant sea read-only; visitante y
+anónimo no). `POST /api/v1/login` devuelve `{api_key, email, role}`; la UI muestra la
+subida solo si `role==admin`. Sin cookies/sesiones (API-only), sin verificación de
+email; rate limit por IP en `login` (`AUTH_RATE_LIMIT_PER_MINUTE`, mensaje genérico,
+no enumera). 7 tests (login admin/visitante, no-enumeración, admin sube / visitante
+403 / ambos leen el mismo corpus, tenant-key anónimo no sube).

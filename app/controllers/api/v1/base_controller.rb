@@ -17,10 +17,17 @@ module Api
       end
 
       def authenticate_tenant!
-        tenant = Tenant.authenticate(api_key_from_request)
-        return render_error("invalid or missing API key", :unauthorized) unless tenant
-
-        Current.tenant = tenant
+        raw_key = api_key_from_request
+        # A user key resolves to a specific account (→ tenant + role); a tenant key
+        # is the anonymous/public path (Current.user stays nil). Either authenticates.
+        if (user = User.authenticate(raw_key))
+          Current.user = user
+          Current.tenant = user.tenant
+        elsif (tenant = Tenant.authenticate(raw_key))
+          Current.tenant = tenant
+        else
+          render_error("invalid or missing API key", :unauthorized)
+        end
       end
 
       def api_key_from_request

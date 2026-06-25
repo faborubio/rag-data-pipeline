@@ -166,15 +166,18 @@ data: {"sources":[...],"done":true}
 
 ## 🖥️ Demo visual
 
-Una página de demo (sin build, servida por el propio Rails) con dos modos:
+Una página de demo (sin build, servida por el propio Rails) con **dos cuentas fijas** sobre un mismo corpus (no hay registro abierto — control del VPS):
 
-- **Anónimo (solo lectura):** chatea con streaming sobre el corpus público sin registrarte (la demo se autocredencia vía `GET /api/v1/demo`).
-- **Sesión personal:** `Entrar / Registrarse` (email + contraseña) crea tu **espacio aislado** — cada usuario obtiene su propio tenant escribible, sube sus documentos (PDF/TXT/MD, privados) y los consulta, con un **contador de cuota** (`STORAGE_BUDGET_MB`). Auth por `POST /api/v1/signup` · `POST /api/v1/login`, que devuelven la API key del tenant del usuario (la demo la guarda en `localStorage`).
+- **Visitante** (login, credenciales compartidas) y **anónimo** (sin login, `GET /api/v1/demo`): **solo lectura** — chatea con streaming sobre el corpus curado, con citas y abstención.
+- **Admin** (login): **cura el corpus** — sube documentos (PDF/TXT/MD) que todos consultan, con un **contador de cuota** (`STORAGE_BUDGET_MB`).
+
+`POST /api/v1/login` devuelve la API key del usuario + su `role`; la demo la guarda en `localStorage` y muestra la subida solo al admin. El permiso de subida lo decide el **rol** (`Current.user.admin?`), no la API key, así que admin y visitante comparten el mismo tenant con accesos distintos. Las cuentas se crean con `bin/rails db:seed` (passwords por `ADMIN_PASSWORD`/`VISITOR_PASSWORD`).
 
 ```bash
-bin/dev                 # levanta web + worker
+ADMIN_PASSWORD=... VISITOR_PASSWORD=... bin/rails db:seed   # crea admin + visitante
+bin/dev                                                     # levanta web + worker
 ```
-Abre **http://localhost:3000/demo.html**, regístrate, sube un PDF y pregúntale. La respuesta llega token por token (SSE) citando las páginas fuente.
+Abre **http://localhost:3000/demo.html**, entra como admin, sube un PDF y pregúntale. La respuesta llega token por token (SSE) citando las páginas fuente.
 
 ## ✅ Requisitos
 
@@ -215,7 +218,8 @@ bin/dev
 | `OPENAI_API_KEY` | Embeddings y respuestas con OpenAI (alternativa). **Sin ningún proveedor, el sistema usa fallbacks deterministas** para que todo el pipeline funcione localmente sin secretos. |
 | `RERANKER` | `neural` activa el cross-encoder ONNX local (opt-in); por defecto, reranker léxico (ver sección de búsqueda). |
 | `STORAGE_BUDGET_MB` | Cuota de subida por tenant (default **500**). Salvaguarda lógica del VPS (no es el disco); la demo muestra un contador usado/disponible y rechaza uploads que la excedan (`GET /api/v1/storage`). |
-| `AUTH_RATE_LIMIT_PER_MINUTE` | Tope por IP para `login`/`signup` (default **10**); frena fuerza bruta de contraseñas y spam de registros. |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | Tope por IP para `login` (default **10**); frena fuerza bruta de contraseñas. |
+| `ADMIN_PASSWORD` / `VISITOR_PASSWORD` | Contraseñas de las 2 cuentas de la demo que crea `db:seed` (admin secreta; visitante compartible). |
 | `MAX_UPLOAD_MB` | Tamaño máximo por archivo subido (default **160**). |
 | `LOCKBOX_MASTER_KEY` / `BLIND_INDEX_MASTER_KEY` | Alternativa a las credenciales de Rails para entornos en contenedor. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Activa el envío de trazas OpenTelemetry vía OTLP al colector/backend indicado (Jaeger, Grafana Tempo, Honeycomb…). Sin ella no se exporta nada (en desarrollo se imprime en consola). |
@@ -364,6 +368,7 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 ### Próximos pasos (opcionales, ordenados por valor)
 
 - [ ] **Generación real con LLM** — el salto de mayor impacto visible; hoy el fallback es extractivo. Requiere proveedor de pago (Gemini con billing, o Claude Haiku ~$0.0025/respuesta) tras el patrón live/fallback ya existente.
+- [ ] **Escalar el VPS a 2 vCPU / 8 GB** — mejora latencia (el cold-start de ~3.6s y la latencia por consulta vienen del único CPU que comparten embedder + reranker) y la concurrencia (ingesta y queries en paralelo). De pago (~2× el costo actual), con downtime breve. Ya se añadió **swap de 2 GB** como colchón de RAM gratuito (ver [AUDIT.md](AUDIT.md)); el resize es mejora de rendimiento, no de seguridad.
 
 > **Para retomar:** el estado, las decisiones y los hallazgos (incluido *por qué* el reranker inglés se descartó por el multilingüe, y los límites de la capa gratuita de Gemini) están en [AUDIT.md](AUDIT.md); el procedimiento de deploy en [DEPLOY.md](DEPLOY.md); los incidentes y sus fixes en [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 

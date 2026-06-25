@@ -75,11 +75,11 @@ class Api::V1::DocumentsTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body)["error"], "quota"
   end
 
-  test "read-only tenants cannot upload" do
+  test "the read-only tenant key cannot upload (no admin user)" do
     @tenant.update!(read_only: true)
     post api_v1_documents_url, params: { file: pdf_upload }, headers: auth_headers(@tenant)
     assert_response :forbidden
-    assert_includes JSON.parse(response.body)["error"], "read-only"
+    assert_includes JSON.parse(response.body)["error"], "cannot upload"
   end
 
   test "shows a document belonging to the tenant" do
