@@ -29,7 +29,10 @@ services:
       # Headroom so SSE streams (each holds a thread for the response) don't
       # starve health checks / normal requests. The DB pool tracks this value.
       RAILS_MAX_THREADS: "6"
-      # Real embeddings via Gemini free tier (optional; falls back if unset).
+      # Local ONNX embedder (e5-small, baked into the image): no API, no rate
+      # limit. Takes priority over GEMINI_API_KEY. See AUDIT.md.
+      EMBEDDER: "local"
+      # Kept for fallback/optional use; EMBEDDER=local wins over it.
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       # Use the multilingual cross-encoder reranker (model baked into the image).
       RERANKER: "neural"
