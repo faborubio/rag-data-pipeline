@@ -166,14 +166,15 @@ data: {"sources":[...],"done":true}
 
 ## 🖥️ Demo visual
 
-Hay una página de demo (sin build, servida por el propio Rails) para subir PDFs y **chatear con streaming** sobre ellos:
+Una página de demo (sin build, servida por el propio Rails) con dos modos:
+
+- **Anónimo (solo lectura):** chatea con streaming sobre el corpus público sin registrarte (la demo se autocredencia vía `GET /api/v1/demo`).
+- **Sesión personal:** `Entrar / Registrarse` (email + contraseña) crea tu **espacio aislado** — cada usuario obtiene su propio tenant escribible, sube sus documentos (PDF/TXT/MD, privados) y los consulta, con un **contador de cuota** (`STORAGE_BUDGET_MB`). Auth por `POST /api/v1/signup` · `POST /api/v1/login`, que devuelven la API key del tenant del usuario (la demo la guarda en `localStorage`).
 
 ```bash
 bin/dev                 # levanta web + worker
-# crea un tenant y copia su API key:
-bin/rails runner 'puts Tenant.create!(name: "Demo").api_key'
 ```
-Abre **http://localhost:3000/demo.html**, pega la API key, sube un PDF y pregúntale. La respuesta llega token por token (SSE) citando las páginas fuente.
+Abre **http://localhost:3000/demo.html**, regístrate, sube un PDF y pregúntale. La respuesta llega token por token (SSE) citando las páginas fuente.
 
 ## ✅ Requisitos
 
@@ -214,6 +215,7 @@ bin/dev
 | `OPENAI_API_KEY` | Embeddings y respuestas con OpenAI (alternativa). **Sin ningún proveedor, el sistema usa fallbacks deterministas** para que todo el pipeline funcione localmente sin secretos. |
 | `RERANKER` | `neural` activa el cross-encoder ONNX local (opt-in); por defecto, reranker léxico (ver sección de búsqueda). |
 | `STORAGE_BUDGET_MB` | Cuota de subida por tenant (default **500**). Salvaguarda lógica del VPS (no es el disco); la demo muestra un contador usado/disponible y rechaza uploads que la excedan (`GET /api/v1/storage`). |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | Tope por IP para `login`/`signup` (default **10**); frena fuerza bruta de contraseñas y spam de registros. |
 | `MAX_UPLOAD_MB` | Tamaño máximo por archivo subido (default **160**). |
 | `LOCKBOX_MASTER_KEY` / `BLIND_INDEX_MASTER_KEY` | Alternativa a las credenciales de Rails para entornos en contenedor. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Activa el envío de trazas OpenTelemetry vía OTLP al colector/backend indicado (Jaeger, Grafana Tempo, Honeycomb…). Sin ella no se exporta nada (en desarrollo se imprime en consola). |

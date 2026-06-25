@@ -10,6 +10,20 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: citext; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION citext; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION citext IS 'data type for case-insensitive character strings';
+
+
+--
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -556,6 +570,20 @@ CREATE TABLE public.tenants (
 
 
 --
+-- Name: users; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.users (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    email public.citext NOT NULL,
+    password_digest character varying NOT NULL,
+    tenant_id uuid NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
 -- Name: solid_cache_entries id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -781,6 +809,14 @@ ALTER TABLE ONLY public.solid_queue_semaphores
 
 ALTER TABLE ONLY public.tenants
     ADD CONSTRAINT tenants_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
 
 
 --
@@ -1043,11 +1079,33 @@ CREATE UNIQUE INDEX index_tenants_on_api_key_bidx ON public.tenants USING btree 
 
 
 --
+-- Name: index_users_on_email; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_users_on_email ON public.users USING btree (email);
+
+
+--
+-- Name: index_users_on_tenant_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_users_on_tenant_id ON public.users USING btree (tenant_id);
+
+
+--
 -- Name: query_logs fk_rails_03d6028f4e; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.query_logs
     ADD CONSTRAINT fk_rails_03d6028f4e FOREIGN KEY (tenant_id) REFERENCES public.tenants(id);
+
+
+--
+-- Name: users fk_rails_135c8f54b2; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT fk_rails_135c8f54b2 FOREIGN KEY (tenant_id) REFERENCES public.tenants(id);
 
 
 --
@@ -1121,6 +1179,7 @@ ALTER TABLE ONLY public.solid_queue_scheduled_executions
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260625130000'),
 ('20260625120000'),
 ('20260615140000'),
 ('20260615130000'),

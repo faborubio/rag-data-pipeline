@@ -16,6 +16,10 @@ Rails.application.routes.draw do
       get "storage", to: "storage#show"
       # Read Path: synchronous RAG query.
       post "chats/query", to: "chats#query", as: :chats_query
+      # Account signup/login for the demo's personal mode (returns the user's
+      # tenant API key). Unauthenticated entry points.
+      post "signup", to: "auth#signup"
+      post "login", to: "auth#login"
       # Public demo bootstrap: returns the read-only demo tenant's API key.
       get "demo", to: "demo#show"
       # Per-tenant query analytics (volume, answer rate, content gaps).

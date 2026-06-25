@@ -8,6 +8,9 @@ module RateLimit
   # Coarse budget for UNAUTHENTICATED /api/ traffic, keyed by IP — caps API-key
   # brute-forcing, which the per-key throttle below cannot see.
   mattr_accessor :unauthenticated_ip_limit, default: Integer(ENV.fetch("UNAUTH_RATE_LIMIT_PER_MINUTE", 20))
+  # Stricter per-IP budget for the credential endpoints (login/signup): caps
+  # password brute-forcing and signup spam.
+  mattr_accessor :auth_limit, default: Integer(ENV.fetch("AUTH_RATE_LIMIT_PER_MINUTE", 10))
 
   # Extracts the raw API key from an Authorization: Bearer or X-API-Key header.
   def self.api_key(req)
@@ -33,6 +36,12 @@ class Rack::Attack
   # auth endpoint trying keys with no limit at all.
   throttle("api/unauthenticated-ip", limit: ->(_req) { RateLimit.unauthenticated_ip_limit }, period: 60) do |req|
     req.ip if req.path.start_with?("/api/") && RateLimit.api_key(req).blank?
+  end
+
+  # Stricter throttle for the credential endpoints, keyed by IP — brute-forcing a
+  # password or spamming signups is costlier than ordinary unauthenticated traffic.
+  throttle("api/auth", limit: ->(_req) { RateLimit.auth_limit }, period: 60) do |req|
+    req.ip if req.post? && %w[/api/v1/login /api/v1/signup].include?(req.path)
   end
 
   # JSON 429 response with a Retry-After hint.

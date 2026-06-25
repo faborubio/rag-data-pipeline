@@ -319,3 +319,20 @@ bytes de archivo subido (`Document.metadata.byte_size`), el upload valida contra
 (`Tenant#room_for?` → 422 si excede), y `GET /api/v1/storage` expone
 usado/presupuesto/disponible para el contador de la demo. Salvaguarda del VPS frente
 a abuso, no un límite de disco.
+
+## Cuentas de usuario + subida personal en la demo (2026-06-25)
+
+Para abrir la subida en la demo pública **con seguridad** (en vez de un tenant
+compartido abierto), se añadió autenticación con **cuentas individuales**: cada
+usuario registrado obtiene **su propio tenant escribible** (espacio aislado — la
+multi-tenancy estricta ya garantiza que no vean documentos ajenos), protegido por la
+cuota por tenant. Modelo `User` (`has_secure_password`/bcrypt, `belongs_to :tenant`),
+`User.register` crea user+tenant atómico. Endpoints `POST /api/v1/signup` y
+`/api/v1/login` (heredan de `ApplicationController`, no exigen key) devuelven la API
+key del tenant del usuario; la demo la guarda en `localStorage` — mismo patrón que
+`/api/v1/demo`. Sin cookies/sesiones (fiel a API-only), sin verificación de email
+(no hay SMTP); la barrera es cuenta+contraseña (mín. 8) + **rate limit dedicado**
+por IP en las credenciales (`AUTH_RATE_LIMIT_PER_MINUTE`, default 10, mensaje de login
+genérico para no enumerar emails). La demo anónima **sigue read-only** (modo público);
+el login añade el "modo personal". 7 tests (signup, login, password corto, email
+duplicado case-insensitive, no-enumeración, aislamiento entre usuarios).

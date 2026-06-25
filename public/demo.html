@@ -62,7 +62,21 @@
     <div>
       <input id="apiKey" type="hidden" />
       <div class="panel">
-        <h2>Demo de solo lectura</h2>
+        <h2>Cuenta</h2>
+        <div id="sessionInfo"></div>
+        <div id="authForm" style="display:none;margin-top:10px">
+          <input id="email" type="email" placeholder="email" autocomplete="username" style="margin-bottom:6px" />
+          <input id="password" type="password" placeholder="contraseña (mín. 8)" autocomplete="current-password" style="margin-bottom:8px" />
+          <div class="row" style="margin-bottom:0">
+            <button onclick="submitAuth('login')" style="flex:1">Entrar</button>
+            <button onclick="submitAuth('signup')" style="flex:1;background:#0b1220;border:1px solid #334155">Crear cuenta</button>
+          </div>
+          <div class="muted" id="authNote" style="margin-top:8px"></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h2 id="demoTitle">Demo</h2>
         <div class="note" id="demoNote">Cargando la demo…</div>
       </div>
 
@@ -119,25 +133,79 @@
 
     window.onload = async () => {
       renderChips();
+      await initSession();
+    };
+
+    // Two modes from one page: a saved login (localStorage) → personal mode on the
+    // user's own writable tenant (upload enabled); otherwise the anonymous public
+    // read-only demo via /api/v1/demo. The backend is always the real gate.
+    async function initSession() {
+      selected.clear(); $("messages").innerHTML = ""; $("uploadPanel").style.display = "none";
+      const savedKey = localStorage.getItem("ragApiKey");
+      const savedEmail = localStorage.getItem("ragEmail");
+
+      if (savedKey) {
+        $("apiKey").value = savedKey;
+        setSessionUI(savedEmail);
+        $("demoTitle").textContent = "Tu espacio";
+        $("demoNote").innerHTML = `Sesión de <b>${escapeHtml(savedEmail)}</b>. Sube tus documentos (PDF/TXT/MD) y pregúntales.`;
+        $("headerTag").textContent = "sesión personal · subida habilitada · streaming · sabe cuándo no responder";
+        $("uploadPanel").style.display = "";
+        loadStorage();
+        await loadDocs();
+        loadAnalytics();
+        return;
+      }
+
+      setSessionUI(null);
       try {
         const r = await fetch("/api/v1/demo");
         if (!r.ok) throw new Error("HTTP " + r.status);
         const j = await r.json();
         $("apiKey").value = j.api_key;
-        $("demoNote").innerHTML = `Conectado al tenant <b>${escapeHtml(j.tenant)}</b>. Pregunta sobre los documentos — o algo fuera de tema para ver cómo <b>se abstiene</b>.`;
-        // Writable tenant (local dev): enable upload. The backend is still the gate.
-        if (j.can_upload) {
-          $("uploadPanel").style.display = "";
-          $("headerTag").textContent = "modo local · subida habilitada · streaming · sabe cuándo no responder";
-          loadStorage();
-        }
+        $("demoTitle").textContent = "Demo de solo lectura";
+        $("demoNote").innerHTML = `Conectado al tenant <b>${escapeHtml(j.tenant)}</b> (solo lectura). Pregunta sobre el corpus — o <b>inicia sesión</b> para subir tus propios documentos.`;
+        $("headerTag").textContent = "demo pública · solo lectura · streaming · sabe cuándo no responder";
+        if (j.can_upload) { $("uploadPanel").style.display = ""; loadStorage(); }
         await loadDocs();
         loadAnalytics();
       } catch (e) {
         $("demoNote").textContent = "No se pudo iniciar la demo: " + e.message;
         $("docs").innerHTML = `<div class="muted">Demo no disponible.</div>`;
       }
-    };
+    }
+
+    function setSessionUI(email) {
+      if (email) {
+        $("sessionInfo").innerHTML = `Sesión: <b>${escapeHtml(email)}</b> · <a href="#" onclick="logout();return false" style="color:var(--accent)">salir</a>`;
+        $("authForm").style.display = "none";
+      } else {
+        $("sessionInfo").innerHTML = `<button onclick="toggleAuth()" style="width:100%">Entrar / Registrarse</button>`;
+      }
+    }
+    function toggleAuth() { const f = $("authForm"); f.style.display = f.style.display === "none" ? "" : "none"; }
+
+    async function submitAuth(mode) {
+      const email = $("email").value.trim(), password = $("password").value;
+      if (!email || !password) { $("authNote").textContent = "Email y contraseña requeridos."; return; }
+      try {
+        const r = await fetch(mode === "signup" ? "/api/v1/signup" : "/api/v1/login", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { $("authNote").textContent = j.error || ("Error " + r.status); return; }
+        localStorage.setItem("ragApiKey", j.api_key);
+        localStorage.setItem("ragEmail", j.email);
+        $("password").value = ""; $("authNote").textContent = "";
+        await initSession();
+      } catch (e) { $("authNote").textContent = "Error de red: " + e.message; }
+    }
+
+    function logout() {
+      localStorage.removeItem("ragApiKey"); localStorage.removeItem("ragEmail");
+      initSession();
+    }
 
     function renderChips() {
       $("chips").innerHTML = SUGGESTIONS.map(q =>
