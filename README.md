@@ -368,7 +368,7 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 ### Próximos pasos (opcionales, ordenados por valor)
 
 - [ ] **Generación real con LLM** — el salto de mayor impacto visible; hoy el fallback es extractivo. Requiere proveedor de pago (Gemini con billing, o Claude Haiku ~$0.0025/respuesta) tras el patrón live/fallback ya existente.
-- [ ] **Escalar el VPS a 2 vCPU / 8 GB** — mejora latencia (el cold-start de ~3.6s y la latencia por consulta vienen del único CPU que comparten embedder + reranker) y la concurrencia (ingesta y queries en paralelo). De pago (~2× el costo actual), con downtime breve. Ya se añadió **swap de 2 GB** como colchón de RAM gratuito (ver [AUDIT.md](AUDIT.md)); el resize es mejora de rendimiento, no de seguridad.
+- [x] **VPS escalado a `e2-standard-2`** (2 vCPU dedicados / 8 GB) + swap 2 GB — ingesta y consultas en paralelo, RAM holgada; cold-start ~6.2s→4.3s, query en caliente ~153ms (ver [AUDIT.md](AUDIT.md) / [DEPLOY.md](DEPLOY.md)).
 
 > **Para retomar:** el estado, las decisiones y los hallazgos (incluido *por qué* el reranker inglés se descartó por el multilingüe, y los límites de la capa gratuita de Gemini) están en [AUDIT.md](AUDIT.md); el procedimiento de deploy en [DEPLOY.md](DEPLOY.md); los incidentes y sus fixes en [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 

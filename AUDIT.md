@@ -323,10 +323,19 @@ a abuso, no un límite de disco.
 **Swap (2026-06-25).** Tras habilitar la subida pública, la ingesta con el embedder
 local llevó el contenedor `web` a ~1.78GB y el host a ~724MB libres **sin swap** →
 riesgo de OOM en picos. Mitigado con **2GB de swap** (`/swapfile`, persistido en
-`/etc/fstab`, `vm.swappiness=10` para preferir RAM y no swapear los modelos). Colchón
-efectivo ~2.8GB. Gratis, sin downtime. **Pendiente (opcional):** escalar la VM a
-2 vCPU / 8 GB (de pago) — el cuello real es el **único CPU** (cold-start ~3.6s,
-ingesta y queries compiten), no la RAM ya cubierta por el swap.
+`/etc/fstab`, `vm.swappiness=10` para preferir RAM y no swapear los modelos). Gratis,
+sin downtime.
+
+**Resize de la VM (2026-06-25, hecho).** Se escaló `e2-medium` (2 vCPU shared / 4 GB)
+→ **`e2-standard-2`** (2 vCPU **dedicados** / 8 GB) desde la consola de GCP (parar →
+cambiar tipo → arrancar, ~5 min de downtime). Medido antes/después: RAM disponible
+724MB → **~6 GB** (web 47%→17% de uso, swap sin tocar), cold-start de la 1ª query
+~6.2s → **~4.3s**, query en caliente ~188ms → **~153ms**. La ganancia clave: 2 cores
+dedicados permiten **ingesta y consultas en paralelo** (antes el único CPU las
+estrangulaba) y RAM holgada para PDFs grandes. **Gotcha:** la IP externa era efímera →
+cambió al reiniciar (se actualizó duckdns a mano); el SSH del runbook pasó a usar el
+**dominio** para sobrevivir cambios de IP (ver [DEPLOY.md](DEPLOY.md)). Pendiente
+opcional: reservar la IP como estática para no volver a tocar duckdns en cada reinicio.
 
 ## Cuentas de la demo: 2 roles (admin / visitante), sin registro (2026-06-25)
 

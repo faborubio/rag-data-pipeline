@@ -8,21 +8,31 @@ tres contenedores — `web` (Rails + Solid Queue embebido), `db` (pgvector) y `c
 > se sincroniza copiando el árbol commiteado. Los secretos viven en `~/rag-data-pipeline/.env`
 > (no versionado) — el procedimiento de abajo nunca lo toca.
 
+**Máquina (2026-06-25):** instancia `rag-pipeline` en `southamerica-west1-b` (proyecto
+`fabian-portafolio`), tipo **`e2-standard-2`** (2 vCPU dedicados / 8 GB) + **2 GB de swap**
+(`/swapfile`, en `fstab`). El SSH usa el **dominio** (`fabian@fabianragpipeline.duckdns.org`),
+no la IP, **a propósito**: la IP externa es **efímera**, así que cambia al parar/arrancar la
+VM (p. ej. un resize). Si reinicias la VM y la IP cambia, **actualiza duckdns** con la nueva
+IP y el dominio (y por tanto estos comandos) siguen funcionando. Para evitarlo de raíz,
+**reserva la IP como estática** en la consola (VPC → IP addresses → *Promote to static*, gratis
+mientras esté adjunta). Escalar el tipo de máquina: parar la VM → *Edit* → *Machine type* →
+arrancar (~3–5 min de downtime; Docker levanta solo por `restart: unless-stopped`).
+
 ## Procedimiento estándar
 
 Desde la copia local, con los cambios ya commiteados y pusheados:
 
 ```bash
 # 1. Sincronizar EXACTAMENTE el árbol commiteado (no toca .env ni archivos extra de la VPS)
-git archive HEAD | ssh fabian@34.176.216.64 'tar -x -C ~/rag-data-pipeline'
+git archive HEAD | ssh fabian@fabianragpipeline.duckdns.org 'tar -x -C ~/rag-data-pipeline'
 
 # 2. Reconstruir la imagen web y levantarla (el healthcheck de db ordena el arranque)
-ssh fabian@34.176.216.64 'cd ~/rag-data-pipeline \
+ssh fabian@fabianragpipeline.duckdns.org 'cd ~/rag-data-pipeline \
   && docker compose -f compose.production.yml build web \
   && docker compose -f compose.production.yml up -d web'
 
 # 3. Solo si cambió el Caddyfile — ver gotcha más abajo
-ssh fabian@34.176.216.64 'cd ~/rag-data-pipeline \
+ssh fabian@fabianragpipeline.duckdns.org 'cd ~/rag-data-pipeline \
   && docker compose -f compose.production.yml up -d --force-recreate caddy'
 ```
 
@@ -48,7 +58,7 @@ El tenant se crea una sola vez en la VPS (no está en seeds). Para crearlo / ver
 que es read-only e ingerir su corpus:
 
 ```bash
-ssh fabian@34.176.216.64 'cd ~/rag-data-pipeline && docker compose -f compose.production.yml exec -T web \
+ssh fabian@fabianragpipeline.duckdns.org 'cd ~/rag-data-pipeline && docker compose -f compose.production.yml exec -T web \
   bin/rails runner "t = Tenant.find_or_create_by!(name: %q(Libro Baseline)); t.update!(read_only: true); puts t.read_only"'
 # debe imprimir: true
 ```
