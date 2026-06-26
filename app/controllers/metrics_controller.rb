@@ -14,8 +14,14 @@ class MetricsController < ActionController::API
   private
 
   def authorize_scrape
-    token = ENV["METRICS_TOKEN"]
-    return if token.blank? # open when no token is configured
+    token = ENV["METRICS_TOKEN"].to_s
+    # Fail closed in production: an unset token must NOT silently expose /metrics
+    # to the internet. Outside production (dev/test) it stays open for convenience.
+    if token.blank?
+      return unless Rails.env.production?
+
+      return head :unauthorized
+    end
 
     provided = request.headers["Authorization"].to_s.split(" ", 2).last.to_s
     head :unauthorized unless ActiveSupport::SecurityUtils.secure_compare(provided, token)

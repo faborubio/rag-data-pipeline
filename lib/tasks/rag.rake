@@ -6,17 +6,24 @@ namespace :rag do
     puts "Re-embedding with provider: #{provider}"
     total = DocumentChunk.count
     done = 0
+    now = Time.current
     DocumentChunk.in_batches(of: Rag::Embedder::BATCH_SIZE) do |batch|
       chunks = batch.to_a
       vectors = embedder.embed(chunks.map(&:content))
       # Stamp the provider alongside the vector so the ingestor's content_hash +
       # provider idempotency stays correct (otherwise a re-ingest would see a
       # stale provider and needlessly re-embed, or reuse a vector from the wrong space).
-      chunks.each_with_index { |chunk, i| chunk.update_columns(embedding: vectors[i], embedding_provider: provider) }
+      # Also bump updated_at: update_columns skips it, but QueryService's answer
+      # cache is versioned by MAX(updated_at) of a document's chunks, so without
+      # this the old embedding space's cached answers would keep being served for
+      # up to CACHE_TTL after switching providers.
+      chunks.each_with_index do |chunk, i|
+        chunk.update_columns(embedding: vectors[i], embedding_provider: provider, updated_at: now)
+      end
       done += chunks.size
       puts "  #{done}/#{total}"
     end
-    puts "Done."
+    puts "Done. Re-embedded #{done} chunks; cached answers invalidated."
   end
 
   desc "Ingest a local PDF, resumable across runs (free-tier friendly). " \
@@ -41,6 +48,12 @@ namespace :rag do
       puts "Rate limit reached — partial progress is cached."
       puts "Re-run the same command later to resume (only the remaining chunks are fetched)."
     end
+  end
+
+  desc "Delete query-log rows past the retention window (QUERY_LOG_RETENTION_DAYS)"
+  task purge_query_logs: :environment do
+    deleted = QueryLog.purge_expired
+    puts "Purged #{deleted} query-log rows older than #{QueryLog::RETENTION_DAYS} days."
   end
 
   desc "Run RAG quality evals (recall@k, MRR, keyword presence) against the golden set"

@@ -146,6 +146,25 @@ class Rag::QueryServiceTest < ActiveSupport::TestCase
     Current.reset
   end
 
+  test "punctuation-only questions do not collide into one cache entry" do
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+    svc = Rag::QueryService.new(reranker: Rag::Reranker.new)
+
+    Current.reset
+    svc.call(tenant: @tenant, question: "???", document_ids: [ @document.id ])
+    assert_equal false, Current.rag[:cache_hit], "first degenerate question is a miss"
+
+    # A different punctuation-only question normalizes to "" too; it must NOT be
+    # served the first one's cached answer.
+    Current.reset
+    svc.call(tenant: @tenant, question: "!!!", document_ids: [ @document.id ])
+    assert_equal false, Current.rag[:cache_hit], "a different degenerate question must not collide"
+  ensure
+    Rails.cache = original_cache
+    Current.reset
+  end
+
   test "re-ingesting a document busts its cached answers" do
     original_cache = Rails.cache
     Rails.cache = ActiveSupport::Cache::MemoryStore.new

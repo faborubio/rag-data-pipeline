@@ -113,8 +113,34 @@ module Rag
       score.to_i.zero? ? nil : sentence.strip
     end
 
+    # Longest excerpt we'll treat as a single "sentence". Beyond this we window
+    # the text so a chunk with no sentence punctuation (tables, bullet lists, OCR)
+    # doesn't dump the whole 500-char block as the answer.
+    SENTENCE_MAX = 280
+
     def split_sentences(text)
-      text.to_s.strip.split(/(?<=[.!?])\s+/).map(&:strip).reject(&:empty?)
+      text.to_s.strip
+          .split(/(?<=[.!?])\s+|\n+/)
+          .flat_map { |s| s.length > SENTENCE_MAX ? window(s) : s }
+          .map(&:strip).reject(&:empty?)
+    end
+
+    # Break an over-long, punctuation-free run into bounded pieces, preferring a
+    # whitespace boundary but always making progress (so it terminates).
+    def window(text, size: SENTENCE_MAX)
+      pieces = []
+      rest = text.strip
+      until rest.empty?
+        if rest.length <= size
+          pieces << rest
+          break
+        end
+        cut = rest.rindex(/\s/, size) || size
+        cut = size if cut.zero?
+        pieces << rest[0...cut]
+        rest = rest[cut..].to_s.lstrip
+      end
+      pieces
     end
 
     def tokenize(text)

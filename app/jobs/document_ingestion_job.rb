@@ -32,6 +32,17 @@ class DocumentIngestionJob < ApplicationJob
 
     chunk_count = ingestor.call(document, file_path)
 
+    if chunk_count.zero?
+      # No extractable text (e.g. an image-only/scanned PDF): retrying won't help,
+      # so fail terminally with a reason instead of reporting a misleading
+      # "completed" that the Read Path can never answer from.
+      document.update!(status: :failed, metadata: document.metadata.merge("error" => "no_extractable_text"))
+      cleanup(file_path)
+      AppMetrics::INGESTIONS.increment(labels: { status: "failed" })
+      Rails.logger.warn("[Ingestion] document=#{document_id} produced no extractable text -> failed")
+      return
+    end
+
     document.completed!
     cleanup(file_path)
     AppMetrics::INGESTIONS.increment(labels: { status: "completed" })

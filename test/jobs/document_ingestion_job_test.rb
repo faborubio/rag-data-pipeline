@@ -63,6 +63,29 @@ class DocumentIngestionJobTest < ActiveJob::TestCase
     File.delete(path) if path && File.exist?(path)
   end
 
+  # A job whose ingestion extracts no text (image-only/scanned PDF).
+  class EmptyIngestionJob < DocumentIngestionJob
+    class NoText
+      def call(*) = 0
+    end
+
+    private
+
+    def ingestor = NoText.new
+  end
+
+  test "fails a document that yields no extractable text instead of completing it" do
+    path = build_pdf(Rails.root.join("tmp", "job_empty.pdf"), [ "x" ])
+
+    EmptyIngestionJob.perform_now(@document.id, path.to_s)
+
+    assert @document.reload.failed?, "an image-only/scanned PDF must not report completed"
+    assert_equal "no_extractable_text", @document.metadata["error"]
+    assert_not File.exist?(path), "temp upload should be removed"
+  ensure
+    File.delete(path) if path && File.exist?(path)
+  end
+
   test "stays processing while retries remain (non-final failure)" do
     # First attempt fails; retry_on re-enqueues it and swallows the error. The
     # document must NOT flap to failed while retries remain.

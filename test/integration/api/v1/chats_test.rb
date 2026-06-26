@@ -35,6 +35,35 @@ class Api::V1::ChatsTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
   end
 
+  test "rejects a query with too many document_ids" do
+    ids = Array.new(Api::V1::ChatsController::MAX_DOCUMENT_IDS + 1) { SecureRandom.uuid }
+    post api_v1_chats_query_url,
+         params: { question: "incendio", document_ids: ids },
+         headers: auth_headers(@tenant), as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body)["error"], "too many"
+  end
+
+  test "rejects a query with an over-long question" do
+    post api_v1_chats_query_url,
+         params: { question: "a" * (Api::V1::ChatsController::MAX_QUESTION_LENGTH + 1), document_ids: [ @document.id ] },
+         headers: auth_headers(@tenant), as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body)["error"], "too long"
+  end
+
+  test "reports still-processing when the tenant's documents are not yet indexed" do
+    doc = @tenant.documents.create!(filename: "indexing.pdf", status: :processing)
+    post api_v1_chats_query_url,
+         params: { question: "¿algo?", document_ids: [ doc.id ] },
+         headers: auth_headers(@tenant), as: :json
+
+    assert_response :accepted
+    body = JSON.parse(response.body)
+    assert_equal true, body["processing"]
+    assert_empty body["sources"]
+  end
+
   test "does not leak chunks from another tenant" do
     other = Tenant.create!(name: "Otra")
     post api_v1_chats_query_url,

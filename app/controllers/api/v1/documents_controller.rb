@@ -8,6 +8,12 @@ module Api
       # memory), so the practical limit is disk + extraction RAM, not process RAM.
       MAX_SIZE = (ENV["MAX_UPLOAD_MB"] || 160).to_i.megabytes
 
+      # Cap how many ingestions a single tenant can have in flight at once. The
+      # write path runs on one Solid Queue worker; without a cap a tenant could
+      # queue dozens of large (or CPU-bomb) PDFs and starve every other tenant's
+      # ingestion. New uploads beyond this get 429 until earlier ones finish.
+      MAX_INFLIGHT = (ENV["MAX_INFLIGHT_INGESTIONS"] || 5).to_i
+
       # GET /api/v1/documents
       def index
         documents = current_tenant.documents
@@ -27,12 +33,22 @@ module Api
         return render_error("file is required", :unprocessable_entity)        if file.blank?
         return render_error("only PDF, TXT and Markdown files are allowed", :unprocessable_entity) unless accepted?(file)
         return render_error("file exceeds the #{MAX_SIZE / 1.megabyte}MB limit", :unprocessable_entity) if file.size > MAX_SIZE
-        return render_error("storage quota exceeded", :unprocessable_entity) unless current_tenant.room_for?(file.size)
 
-        document = current_tenant.documents.create!(
-          filename: file.original_filename, status: :processing,
-          metadata: { byte_size: file.size }
-        )
+        # Re-check quota + in-flight cap while holding a row lock on the tenant, so
+        # two concurrent uploads can't both pass the check and blow past the budget
+        # (TOCTOU). `next` keeps the early exit block-local (no transaction-return).
+        document = current_tenant.with_lock do
+          next :over_quota unless current_tenant.room_for?(file.size)
+          next :too_many   if too_many_inflight?
+
+          current_tenant.documents.create!(
+            filename: file.original_filename, status: :processing,
+            metadata: { byte_size: file.size }
+          )
+        end
+        return render_error("storage quota exceeded", :unprocessable_entity) if document == :over_quota
+        return render_error("too many documents are still processing; retry once they finish", :too_many_requests) if document == :too_many
+
         path = store(file)
         DocumentIngestionJob.perform_later(document.id, path.to_s)
 
@@ -55,6 +71,12 @@ module Api
         return Current.user.admin? if Current.user
 
         !current_tenant.read_only?
+      end
+
+      # Backpressure: true when the tenant already has MAX_INFLIGHT documents
+      # still being ingested, so a flood of uploads can't monopolize the worker.
+      def too_many_inflight?
+        MAX_INFLIGHT.positive? && current_tenant.documents.processing.count >= MAX_INFLIGHT
       end
 
       # Accept by extension; for PDFs also check the magic bytes so a non-PDF

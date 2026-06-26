@@ -105,6 +105,11 @@ archivo **in-place** en la VPS (`nano`/`vim` sin swap atómico), que conserva el
 - `/metrics` responde **403 en el edge**: Prometheus es para scraping interno
   (desde la VPS: `curl http://localhost:80/metrics` contra el contenedor `web`).
   Si se añade un host de monitoreo, hacer whitelist en el `Caddyfile`.
+- **`/metrics` es fail-closed en producción** (defensa en profundidad, además del 403
+  del edge): sin `METRICS_TOKEN` válido responde **401**. Pon `METRICS_TOKEN=<secreto>`
+  en `~/rag-data-pipeline/.env` y scrapea con `curl -H "Authorization: Bearer $METRICS_TOKEN"
+  http://localhost:80/metrics`. Si `.env` no lo define, el scraping interno da 401 (la app
+  no se ve afectada).
 - Security headers (HSTS, `X-Frame-Options`, `X-Content-Type-Options`,
   `Referrer-Policy`) los añade Caddy — Rails no los gestiona.
 

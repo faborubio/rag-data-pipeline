@@ -75,6 +75,15 @@ class Api::V1::DocumentsTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body)["error"], "quota"
   end
 
+  test "rejects an upload when too many documents are still processing" do
+    Api::V1::DocumentsController::MAX_INFLIGHT.times do |i|
+      @tenant.documents.create!(filename: "inflight#{i}.pdf", status: :processing)
+    end
+    post api_v1_documents_url, params: { file: pdf_upload }, headers: auth_headers(@tenant)
+    assert_response :too_many_requests
+    assert_includes JSON.parse(response.body)["error"], "still processing"
+  end
+
   test "the read-only tenant key cannot upload (no admin user)" do
     @tenant.update!(read_only: true)
     post api_v1_documents_url, params: { file: pdf_upload }, headers: auth_headers(@tenant)

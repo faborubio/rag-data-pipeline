@@ -3,15 +3,39 @@ module Api
     class ChatsController < BaseController
       include ActionController::Live
 
+      # Hard cap on how many documents one query may target. A query fans out to a
+      # vector + full-text scan over WHERE document_id IN (...); an unbounded array
+      # lets a client build a pathological IN-list and hammer the DB. The demo only
+      # ever selects a handful, so this is generous.
+      MAX_DOCUMENT_IDS = (ENV["MAX_QUERY_DOCUMENT_IDS"] || 100).to_i
+      # Bound the question length so an enormous body can't blow up embedding /
+      # full-text / rerank work (and the cache key) per request.
+      MAX_QUESTION_LENGTH = (ENV["MAX_QUESTION_LENGTH"] || 2000).to_i
+
       # POST /api/v1/chats/query
       # Body: { document_ids: [uuid...], question: "...", stream: false }
       # When stream=true the answer is sent token-by-token as Server-Sent Events.
       def query
         question = params[:question].to_s
-        document_ids = Array(params[:document_ids]).map(&:to_s).reject(&:blank?)
+        document_ids = Array(params[:document_ids]).map(&:to_s).reject(&:blank?).uniq
 
         return render_error("question is required", :unprocessable_entity) if question.blank?
+        return render_error("question is too long (max #{MAX_QUESTION_LENGTH} chars)", :unprocessable_entity) if question.length > MAX_QUESTION_LENGTH
         return render_error("document_ids is required", :unprocessable_entity) if document_ids.empty?
+        return render_error("too many document_ids (max #{MAX_DOCUMENT_IDS})", :unprocessable_entity) if document_ids.size > MAX_DOCUMENT_IDS
+
+        # Distinguish "still indexing" from "not in the corpus": if the tenant owns
+        # some of these documents but none have finished ingesting, say so instead
+        # of returning a misleading "no encontré información". Scoped to the tenant,
+        # so it never reveals anything about another tenant's documents (an
+        # unowned/unknown id falls through to the normal empty-sources answer).
+        owned = current_tenant.documents.where(id: document_ids)
+        if owned.exists? && !owned.completed.exists?
+          return render json: {
+            answer: "Los documentos seleccionados todavía se están procesando. Probá de nuevo en unos momentos.",
+            sources: [], processing: true, query_id: nil
+          }, status: :accepted
+        end
 
         if streaming?
           stream_answer(question, document_ids)

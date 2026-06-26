@@ -47,4 +47,28 @@ class Rag::RerankerTest < ActiveSupport::TestCase
     assert Rag::NeuralReranker.new.confident?(t + 0.05), "above threshold -> answer"
     assert_not Rag::NeuralReranker.new.confident?(t - 0.05), "below threshold -> abstain"
   end
+
+  # Neural reranker whose model can't load/run: exercises the lexical fallback.
+  class FailingNeuralReranker < Rag::NeuralReranker
+    private
+
+    def cross_encode(*) = raise "model unavailable"
+  end
+
+  test "falls back to lexical scores when the cross-encoder fails" do
+    candidates = [
+      chunk("Las vacaciones se acumulan a 15 dias por ano trabajado."),
+      chunk("El protocolo de incendio indica evacuar por las escaleras de emergencia.")
+    ]
+    ranked = FailingNeuralReranker.new.rerank(question: "¿qué hago en caso de incendio?", candidates: candidates)
+    assert_equal candidates.last, ranked.first.first, "lexical fallback still reorders by coverage"
+  end
+
+  test "does not gate on the lexical score after falling back (no false abstention)" do
+    reranker = FailingNeuralReranker.new
+    # A purely semantic match the lexical signal scores at 0 would be wrongly
+    # abstained if we kept comparing to the 0.18 cross-encoder threshold.
+    reranker.rerank(question: "licencia parental", candidates: [ chunk("vacaciones anuales") ])
+    assert reranker.confident?(0.0), "degraded mode must defer to the lexical (never-gate) contract"
+  end
 end

@@ -18,6 +18,10 @@ module Rag
 
     def initialize(lexical: Reranker.new)
       @lexical = lexical
+      # True once a rerank has fallen back to the lexical reranker (model failed
+      # to load/run). The scores then come from the lexical signal, which is NOT
+      # comparable to MIN_RELEVANT_SCORE — see #confident?.
+      @degraded = false
     end
 
     # candidates: Array of DocumentChunk (responds to #content). Returns
@@ -25,19 +29,38 @@ module Rag
     def rerank(question:, candidates:)
       return [] if candidates.empty?
 
-      ranked = self.class.pipeline.call(question, candidates.map(&:content))
+      ranked = cross_encode(question, candidates.map(&:content))
+      @degraded = false
       ranked.map { |row| [ candidates[row[:doc_id]], row[:score].to_f ] }
     rescue StandardError => e
       Rails.logger.warn("[NeuralReranker] falling back to lexical: #{e.class}: #{e.message}")
+      @degraded = true
       @lexical.rerank(question: question, candidates: candidates)
     end
 
-    # A low top score means the question is off-topic for this corpus → gate it.
-    def confident?(top_score) = top_score >= MIN_RELEVANT_SCORE
+    # A low top cross-encoder score means the question is off-topic → gate it.
+    # BUT when we've fallen back to the lexical reranker, `top_score` is a lexical
+    # coverage score (0..~1.25), not a cross-encoder score — comparing it to 0.18
+    # would misfire (false abstentions on semantic matches, off-topic answers on
+    # stopword overlap). So in degraded mode defer to the lexical contract (never
+    # gate): better to answer than to abstain on everything while the model is down.
+    def confident?(top_score)
+      return @lexical.confident?(top_score) if @degraded
+
+      top_score >= MIN_RELEVANT_SCORE
+    end
 
     # Loaded once per process — the model is ~230MB and slow to initialize.
     def self.pipeline
       @pipeline ||= Informers.pipeline("reranking", MODEL, quantized: true)
+    end
+
+    private
+
+    # Seam over the memoized class-level pipeline, so tests can drive the
+    # degraded fallback path without loading the ONNX model.
+    def cross_encode(question, contents)
+      self.class.pipeline.call(question, contents)
     end
   end
 end

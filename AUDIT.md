@@ -256,10 +256,16 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
 
 ## Pendiente / próximas auditorías (trabajo opcional, por valor)
 
-0. **Del audit, menor/cosmético:** `WEB_CONCURRENCY=1` deja Puma en cluster-mode con 1 worker
-   (desperdicio; pasar a single-mode o 2 workers); `documents_version` sin scope de tenant
-   (no hay fuga, solo prolijidad).
+0. **Del audit, menor/cosmético:** ~~`WEB_CONCURRENCY=1` deja Puma en cluster-mode con 1 worker~~
+   (✅ resuelto: pasado a single-mode `WEB_CONCURRENCY=0` para no duplicar los modelos ONNX —
+   ver 3ª tanda abajo); `documents_version` sin scope de tenant (no hay fuga, solo prolijidad).
 
+0b. **Caché de streaming no escrita si el cliente corta justo al final** — `call_streaming`
+   escribe la entrada de caché **después** del último delta; si el `ClientDisconnected` ocurre
+   entre el último token y `Rails.cache.write`, esa respuesta (cara: embed+search+rerank+LLM) no
+   se cachea y la próxima vuelve a ser miss. Comportamiento **seguro** (nunca cachea parciales),
+   solo subóptimo. Arreglarlo bien implica caché incremental; diferido hasta tener LLM de pago
+   (donde un miss cuesta dinero). *(Caso borde #5 del review 2026-06-25.)*
 
 1. **Generación real con LLM** — el fallback ya es extractivo-enfocado; el salto a
    respuestas generadas requiere proveedor de pago (Gemini con billing / Claude
@@ -357,3 +363,72 @@ subida solo si `role==admin`. Sin cookies/sesiones (API-only), sin verificación
 email; rate limit por IP en `login` (`AUTH_RATE_LIMIT_PER_MINUTE`, mensaje genérico,
 no enumera). 7 tests (login admin/visitante, no-enumeración, admin sube / visitante
 403 / ambos leen el mismo corpus, tenant-key anónimo no sube).
+
+## Hardening de robustez y seguridad (3ª tanda, 2026-06-25)
+
+Revisión crítica end-to-end buscando casos borde de mayor a menor riesgo. 13 fixes,
+cada uno con su test; suite **155 runs / 393 assertions verde**, RuboCop limpio.
+
+- **Abstención fail-fast en boot (riesgo: el RAG inventa).** La abstención solo gatea con
+  `RERANKER=neural` (el reranker léxico nunca abstiene). Si prod arrancaba sin él, el RAG
+  volvía a responder preguntas fuera de tema **sin que ningún test lo notara** (CI corre el
+  tier léxico). Ahora [`config/initializers/retrieval_guard.rb`](config/initializers/retrieval_guard.rb)
+  **aborta el arranque en producción** si el reranker activo no gatea (escape explícito:
+  `ALLOW_NON_GATING_RERANKER=1` para un corpus cerrado donde toda pregunta es on-topic).
+
+- **NeuralReranker en fallback ya no provoca falsas abstenciones.** Si el modelo ONNX no
+  carga, `rerank` caía al léxico pero `confident?` **seguía comparando contra 0.18** (umbral
+  del cross-encoder), score que no aplica a la cobertura léxica (0..~1.25) → abstenía de más
+  (match semántico con 0 overlap) o respondía basura (off-topic con stopwords). Ahora el
+  reranker recuerda si quedó **degradado** y en ese modo difiere al contrato léxico
+  (never-gate): mejor responder que abstenerse de todo mientras el modelo está caído. Seam
+  `cross_encode` inyectable + 2 tests del path degradado.
+
+- **Anti-DoS de ingesta (PDF-bomba).** El write path corre en **un** worker de Solid Queue;
+  un tenant podía encolar decenas de PDFs grandes/bomba y matar de hambre a los demás. Cap de
+  **ingestas en vuelo por tenant** (`MAX_INFLIGHT_INGESTIONS`, def 5 → 429) en
+  [`DocumentsController`](app/controllers/api/v1/documents_controller.rb).
+
+- **Anti-DoS de consulta.** Cap de cardinalidad de `document_ids` (`MAX_QUERY_DOCUMENT_IDS`,
+  def 100) y de largo de la pregunta (`MAX_QUESTION_LENGTH`, def 2000) en
+  [`ChatsController`](app/controllers/api/v1/chats_controller.rb): un array gigante construía
+  un `WHERE id IN (...)` patológico para martillar la DB.
+
+- **`/metrics` fail-closed en producción.** Antes quedaba **abierto** si `METRICS_TOKEN` estaba
+  vacío. Ahora en producción sin token responde 401 (dev/test sigue abierto por conveniencia).
+
+- **Bug real: `rag:reembed` envenenaba la caché de respuestas.** Usaba `update_columns`, que
+  **no toca `updated_at`**, pero la clave de caché de respuestas se versiona por
+  `MAX(updated_at)` de los chunks. Resultado: al cambiar de proveedor de embeddings y
+  re-embeber, las respuestas del **espacio vectorial viejo** se servían hasta 12h. Ahora el
+  task sella `updated_at` → invalida la caché.
+
+- **PDF escaneado / sin texto ya no miente.** 0 chunks extraídos (PDF de solo imágenes)
+  marcaba el doc `completed` en silencio; ahora se marca `failed` con
+  `metadata.error = "no_extractable_text"` (reintentar no ayuda a un PDF sin texto).
+
+- **"Todavía indexando" vs "no está en el corpus".** Una consulta a docs aún en `processing`
+  devolvía "no encontré información" (engañoso). Ahora responde 202 con `processing: true`,
+  scopeado al tenant (no revela nada de otros tenants).
+
+- **Colisión de caché de preguntas degeneradas.** `"???"` y `"..."` normalizaban a `""` y
+  compartían entrada de caché (una servía la respuesta de la otra). Fallback a la pregunta
+  cruda cuando la normalización queda vacía.
+
+- **Re-ingesta concurrente del mismo doc.** Dos jobs sobre el mismo `document_id` podían
+  interleavar `delete_all` + `insert_all!` y duplicar/perder chunks. Advisory lock de Postgres
+  (`pg_advisory_xact_lock`, transaction-scoped) por documento en el [`Ingestor`](app/services/rag/ingestor.rb).
+
+- **TOCTOU de cuota.** Dos uploads concurrentes podían pasar ambos `room_for?` y exceder el
+  budget. Re-chequeo de cuota + in-flight bajo `tenant.with_lock`.
+
+- **Privacidad de `QueryLog`.** Las preguntas son texto libre (posible PII) guardado indefinido.
+  Ahora: retención (`QUERY_LOG_RETENTION_DAYS`, def 90 + `rake rag:purge_query_logs`), truncado
+  (`QUERY_LOG_QUESTION_MAX_LENGTH`, def 500) y opción de redacción total (`QUERY_LOG_STORE_QUESTION=0`).
+
+- **Respuesta extractiva con chunks sin puntuación.** Tablas/listas/OCR sin `.!?` volcaban el
+  bloque entero de 500 chars; ahora se ventana a ~280 chars en boundary de palabra.
+
+- **Puma single-mode (`WEB_CONCURRENCY=0`).** `=1` forzaba cluster con 1 worker (overhead puro)
+  y habría cargado los ~767MB de modelos ONNX (e5 + jina) **por worker**. Single-mode mantiene
+  un proceso con N threads; la inferencia ONNX libera el GVL, así que usan los 2 cores dedicados.

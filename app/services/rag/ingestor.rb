@@ -7,6 +7,12 @@ module Rag
     # Rows per INSERT statement on persist; caps statement size for big documents.
     INSERT_BATCH_SIZE = 500
 
+    # Namespace for the per-document Postgres advisory lock (the two-int form:
+    # this constant + hashtext(document_id)). Serializes concurrent re-ingests of
+    # the SAME document so two jobs can't interleave their delete_all/insert_all!
+    # and duplicate or lose chunks.
+    ADVISORY_LOCK_NAMESPACE = 0x52414701
+
     # extractor: nil -> chosen per file by extension (PDF vs plain text). Tests
     # can still inject a specific extractor.
     def initialize(extractor: nil,
@@ -58,6 +64,10 @@ module Rag
         # an empty target: insert_all! writes straight to SQL, which would leave
         # a stale in-memory association on the passed-in document.
         DocumentChunk.transaction do
+          # Hold a transaction-scoped advisory lock on this document so a second
+          # concurrent ingest of the same doc waits here instead of racing the
+          # delete + insert below (it auto-releases at COMMIT/ROLLBACK).
+          lock_document!(document.id)
           DocumentChunk.where(document_id: document.id).delete_all
           # Insert in slices so a large document (thousands of chunks) doesn't
           # build one enormous INSERT statement; still one atomic transaction.
@@ -69,6 +79,15 @@ module Rag
     end
 
     private
+
+    # Postgres transaction-scoped advisory lock keyed on the document, so two
+    # ingests of the same document serialize instead of corrupting its chunks.
+    def lock_document!(document_id)
+      sql = ActiveRecord::Base.sanitize_sql_array(
+        [ "SELECT pg_advisory_xact_lock(?, hashtext(?))", ADVISORY_LOCK_NAMESPACE, document_id.to_s ]
+      )
+      DocumentChunk.connection.execute(sql)
+    end
 
     # SHA256 hex of the chunk content. Mirrors the migration's
     # encode(public.digest(content, 'sha256'), 'hex') so the backfill and live

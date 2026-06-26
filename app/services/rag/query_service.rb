@@ -195,7 +195,7 @@ module Rag
     def log_query(tenant, question, payload, cache_hit, latency_ms)
       log = QueryLog.create!(
         tenant: tenant,
-        question: question.to_s,
+        question: QueryLog.sanitize_question(question),
         answered: payload[:answer] != NO_ANSWER,
         rerank_score: Current.rag[:rerank_score],
         cache_hit: cache_hit,
@@ -238,8 +238,12 @@ module Rag
     #     whole TTL.
     def cache_key(tenant, question, document_ids)
       ids = Array(document_ids).map(&:to_s).sort
+      # Fall back to the raw (stripped/downcased) question when normalization
+      # empties it (e.g. "???"), so degenerate punctuation-only questions don't
+      # all collapse to one cache entry and serve each other's answers.
+      key_question = normalize_question(question).presence || question.to_s.strip.downcase
       digest = Digest::SHA256.hexdigest(
-        [ CACHE_VERSION, normalize_question(question), ids, documents_version(ids) ].to_json
+        [ CACHE_VERSION, key_question, ids, documents_version(ids) ].to_json
       )
       "rag:query:#{tenant.id}:#{digest}"
     end
