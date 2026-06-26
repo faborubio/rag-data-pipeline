@@ -1,8 +1,12 @@
 # CLAUDE.md — contexto del proyecto
 
-> Este archivo se carga automáticamente al iniciar cada sesión. **Para contexto
-> profundo, lee primero [AUDIT.md](AUDIT.md) (bitácora de decisiones, hallazgos y
-> todo lo hecho) y [README.md](README.md) (overview + roadmap).**
+> Este archivo se carga automáticamente al iniciar cada sesión.
+>
+> **AL INICIAR, lee de entrada los documentos fuente de verdad para tener todo el
+> contexto antes de actuar** (orden sugerido): [AUDIT.md](AUDIT.md) (changelog/estado
+> real), [README.md](README.md) (overview + roadmap), [DEPLOY.md](DEPLOY.md) (runbook
+> VPS), [TROUBLESHOOTING.md](TROUBLESHOOTING.md) (incidentes + fixes) y
+> [SPEC.md](SPEC.md) (spec original; para el *por qué*, no el estado actual).
 
 ## Qué es
 
