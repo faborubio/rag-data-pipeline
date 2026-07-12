@@ -2,10 +2,10 @@
 
 # 🚀 RAG Data Pipeline & Knowledge API
 
-**Pipeline de ingestión RAG (Retrieval-Augmented Generation) de nivel producción** para procesar, fragmentar y vectorizar documentos PDF corporativos a gran escala, con búsqueda semántica de baja latencia y aislamiento estricto por inquilino (*multi-tenancy*).
+**Backend RAG (Retrieval-Augmented Generation) multi-tenant** en Rails 8 + pgvector, sin vector store SaaS. Ingiere documentos (PDF/TXT/MD) y responde preguntas en lenguaje natural con **búsqueda híbrida**, **reranking neural**, **citas a la fuente** y **abstención** cuando el corpus no cubre la pregunta.
 
 [![CI](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-134%20passing-22c55e)](test/)
+[![Tests](https://img.shields.io/badge/tests-157%20passing-22c55e)](test/)
 [![Ruby](https://img.shields.io/badge/Ruby-3.3.11-CC342D?logo=ruby&logoColor=white)](.ruby-version)
 [![Rails](https://img.shields.io/badge/Rails-8.1-CC0000?logo=rubyonrails&logoColor=white)](Gemfile)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](config/database.yml)
@@ -20,9 +20,19 @@
 
 ---
 
+## ⭐ Por qué destaca
+
+Tres cosas que lo separan de un RAG de tutorial, **medidas, no prometidas** (golden set + gate en CI):
+
+- **Calidad de retrieval verificada** — búsqueda híbrida (vector + full-text ES, fusión RRF) + reranker neural multilingüe → **recall@5 / MRR = 1.0** en el golden set. No es una demo que "parece" andar: hay un harness que **bloquea el merge** si la calidad regresa.
+- **Sabe cuándo *no* responder (abstención)** — la mayoría de los RAG inventan ante preguntas fuera del corpus. Este mide la confianza del cross-encoder y **abstiene bajo un umbral calibrado con evidencia** (0.18, protegido por un golden set negativo). Un RAG honesto vale más que uno seguro-de-sí-mismo.
+- **Sin costo ni rate-limit: embeddings neuronales locales** — embedder ONNX (`e5-small`, 384d) que **iguala a Gemini** en calidad medida (recall 1.0) a 64ms/embed, corriendo en el propio VPS. Elegido midiendo recall/RAM/latencia antes de migrar, no por moda.
+
+> Toda decisión de peso está documentada con su *por qué* y su evidencia: [decisiones y hallazgos](docs/AUDIT.md) · [casos de dominio medidos](docs/CASES.md) · [modelo de amenazas](docs/SECURITY.md).
+
 ## 📖 Descripción
 
-Este proyecto implementa un backend RAG construido sobre el ecosistema **moderno de Ruby on Rails 8**, sin depender de servicios externos para el almacenamiento vectorial. Permite a múltiples clientes (*tenants*) subir documentos PDF, procesarlos de forma asíncrona y realizar consultas en lenguaje natural que devuelven respuestas **citando las fuentes exactas** (documento y página).
+Este proyecto implementa un backend RAG construido sobre el ecosistema **moderno de Ruby on Rails 8**, sin depender de servicios externos para el almacenamiento vectorial. Permite a múltiples clientes (*tenants*) subir documentos (PDF/TXT/MD), procesarlos de forma asíncrona y realizar consultas en lenguaje natural que devuelven respuestas **citando las fuentes exactas** (documento y página) — o **abstenerse** cuando el corpus no cubre la pregunta.
 
 El objetivo es demostrar habilidades avanzadas de **ingeniería de datos, concurrencia, seguridad y optimización de infraestructura backend**.
 
@@ -35,38 +45,39 @@ El objetivo es demostrar habilidades avanzadas de **ingeniería de datos, concur
 - 💬 **Respuestas en streaming (SSE)** token por token, citando documento y página.
 - 🚦 **Rate limiting por tenant** (rack-attack) y **caché distribuida** (Solid Cache sobre PostgreSQL).
 - 📈 **Observabilidad (3 pilares)**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics` + **tracing distribuido OpenTelemetry** (spans `rag.*`, exporter OTLP).
-- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 134 tests.
+- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 157 tests.
 - 📐 **Evals de calidad RAG**: golden dataset + recall@5/MRR/keywords como **gate en CI** (con embeddings reales de Gemini: **recall 1.0**).
 
 ## 🏗️ Arquitectura
 
 El sistema se divide en dos flujos críticos diseñados para maximizar rendimiento y disponibilidad:
 
-```
-┌─────────────────────────── WRITE PATH (asíncrono) ───────────────────────────┐
-│                                                                               │
-│  POST /api/v1/documents                                                       │
-│        │  (valida .pdf + ≤160MB)                                              │
-│        ▼                                                                       │
-│  Document(status: processing) ──► DocumentIngestionJob (Solid Queue)          │
-│                                        │                                       │
-│        pdftotext ──► SemanticChunker ──► Embedder (lotes de 20) ──► pgvector  │
-│        (Poppler)     (langchainrb)       (OpenAI + Circuit Breaker)            │
-│                                        │                                       │
-│                                        ▼                                       │
-│                              Document(status: completed)                       │
-└───────────────────────────────────────────────────────────────────────────────┘
+**Write Path** (asíncrono, Solid Queue):
 
-┌─────────────────────────── READ PATH (síncrono) ─────────────────────────────┐
-│                                                                               │
-│  POST /api/v1/chats/query                                                     │
-│        │                                                                       │
-│        ▼                                                                       │
-│  Embed pregunta ──► Búsqueda coseno (HNSW, top 5) ──► Prompt + LLM ──► Answer  │
-│                     · filtro estricto por tenant_id    (Solid Cache)  + sources │
-│                     · filtro por document_ids permitidos                       │
-└───────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    A["POST /api/v1/documents<br/>PDF · TXT · MD · ≤160MB"] --> C["DocumentIngestionJob<br/>Solid Queue · async"]
+    C --> D["extracción<br/>pdftotext / texto plano"]
+    D --> E["chunking estructural<br/>párrafos + secciones"]
+    E --> F["embeddings<br/>ONNX e5-small 384d · local"]
+    F --> G[("pgvector<br/>vector 384 + HNSW")]
+    G --> H["Document: completed"]
 ```
+<sub>Idempotente por `content_hash` · reintentos + circuit breaker · **reanudable** ante rate-limit (caché de embeddings en Solid Cache).</sub>
+
+**Read Path** (síncrono):
+
+```mermaid
+flowchart LR
+    Q["POST /api/v1/chats/query"] --> E["embed pregunta"]
+    E --> H["búsqueda híbrida<br/>pgvector coseno + full-text ES · RRF"]
+    H --> R["reranker neural<br/>cross-encoder jina multilingüe"]
+    R --> C{"score ≥ umbral?"}
+    C -->|sí| A["respuesta EXTRACTIVA<br/>con citas a la fuente"]
+    C -->|no| X["ABSTIENE<br/>no encontré información"]
+    A --> S["streaming SSE<br/>+ caché de respuestas"]
+```
+<sub>Scope estricto por `tenant_id` + `document_ids` en cada consulta. La respuesta es **extractiva con citas** (sin LLM generativo aún; el salto está diferido — ver [AUDIT.md](docs/AUDIT.md), `AUD-004`).</sub>
 
 ### Decisiones arquitectónicas (ADRs)
 
@@ -336,43 +347,20 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 
 ## 🗺️ Roadmap
 
-- [x] Esquema de datos (UUID + pgvector/HNSW)
-- [x] Modelos y multi-tenancy
-- [x] Cifrado de API keys (Lockbox + Blind Index)
-- [x] Pipeline de ingestión asíncrono
-- [x] Endpoint de consulta RAG (Read Path)
-- [x] Autenticación por tenant
-- [x] Suite de tests automatizados (Minitest, 92 tests)
-- [x] Rate limiting por tenant (rack-attack)
-- [x] Streaming de respuestas (SSE)
-- [x] Worker de Solid Queue (proceso `bin/jobs` / embebido en Puma)
-- [x] Observabilidad (logs JSON + métricas RAG + endpoint Prometheus `/metrics`)
-- [x] Caché y rate limiting distribuidos (Solid Cache sobre PostgreSQL)
-- [x] Tracing distribuido (OpenTelemetry: auto-instrumentación + spans `rag.*`, exporter OTLP)
-- [x] Evals de calidad RAG (golden dataset + recall@5/MRR/keywords como gate en CI)
-- [x] Búsqueda híbrida (pgvector + full-text en español, fusión con Reciprocal Rank Fusion)
-- [x] Reranking de dos etapas (léxico por defecto + cross-encoder ONNX **multilingüe** opt-in)
-- [x] Embeddings reales con **Google Gemini** (capa gratuita, multi-proveedor con fallback)
-- [x] Calidad máxima medida (Gemini + jina multilingüe): **recall/MRR/keywords = 1.0**
-- [x] Respuestas extractivas enfocadas (frase relevante + multi-fuente, sin LLM)
-- [x] **Abstención por confianza** — si el score top del cross-encoder cae bajo el umbral (`RERANK_MIN_SCORE`, def 0.18), responde "No encontré información sobre eso" en vez de inventar (sabe cuándo *no* responder)
-- [x] **Eval de grounding/fidelidad** — métrica en el harness (tokens de la respuesta presentes en el contexto) como gate de CI (min 0.90), para cazar alucinaciones
-- [x] **Gate de abstención medido** — golden set negativo (preguntas fuera del corpus) + métricas `false_abstention` (positivas nunca se abstienen, gate de CI) y `abstention` (negativas se abstienen, gate del tier neural `RERANKER=neural`), para que una regresión del umbral 0.18 no pase inadvertida
-- [x] **Analítica por tenant** — `GET /api/v1/analytics`: volumen, tasa de respuesta, cache-hit, preguntas top y vacíos de contenido (abstenciones)
-- [x] **UI de chat enriquecida** — streaming, fuentes, pills de latencia/caché, abstención estilizada, chips sugeridos y panel de analítica en vivo
-- [x] **Citas inline `[n]`** — cada afirmación de la respuesta referencia su fuente numerada (trazabilidad)
-- [x] **Formatos TXT / Markdown** además de PDF (extractor por extensión; el resto del pipeline se reusa)
-- [x] **Feedback 👍/👎** por respuesta (`POST /api/v1/feedback`), reflejado en la analítica
-- [x] **Idempotencia de embeddings** — reuso por `content_hash` + provider; re-ingestar contenido sin cambios no re-embebe (ahorra cuota Gemini)
-- [x] **Chunking estructural** — segmenta por párrafos (con reflow) y secciones (encabezados); no mezcla secciones y solo parte por caracteres lo que excede 500. Evals sin cambios en el corpus limpio; gana robustez con PDFs reales desordenados
-- [x] **Embedder neural local (ONNX)** — `EMBEDDER=local` usa `Xenova/multilingual-e5-small` (384d) vía `informers`/ONNX, reemplazando al free tier de Gemini (que saturaba el bulk con 429). Sin API, sin rate limit, gratis; medido recall/MRR **1.0** en el golden set (iguala a Gemini, supera al BoW), 64ms/embed. Implicó migrar el esquema a `vector(384)` — ver [AUDIT.md](docs/AUDIT.md)
+**Hecho** — el detalle y el *por qué* de cada decisión viven en [AUDIT.md](docs/AUDIT.md) (el changelog real):
+esquema UUID + pgvector/HNSW · multi-tenancy con API keys cifradas (Lockbox + blind index) · ingestión
+asíncrona (Solid Queue) con reintentos + circuit breaker · **búsqueda híbrida** (vector + full-text ES, RRF) +
+**reranking neural** · **abstención medida** (gate en CI con golden set negativo) · **embedder local ONNX**
+(e5-small 384d) · respuestas extractivas con **citas inline `[n]`** · streaming SSE · caché versionada por
+contenido · formatos PDF/TXT/MD · analítica y feedback por tenant · observabilidad (logs JSON + Prometheus +
+OpenTelemetry) · evals con gate (**recall/MRR = 1.0**) · deploy en VPS `e2-standard-2` (Docker Compose + Caddy).
 
-### Próximos pasos (opcionales, ordenados por valor)
+**Próximos pasos** (por valor — ver el registro de deuda `AUD-NNN` en [AUDIT.md](docs/AUDIT.md)):
 
-- [ ] **Generación real con LLM** — el salto de mayor impacto visible; hoy el fallback es extractivo. Requiere proveedor de pago (Gemini con billing, o Claude Haiku ~$0.0025/respuesta) tras el patrón live/fallback ya existente.
-- [x] **VPS escalado a `e2-standard-2`** (2 vCPU dedicados / 8 GB) + swap 2 GB — ingesta y consultas en paralelo, RAM holgada; cold-start ~6.2s→4.3s, query en caliente ~153ms (ver [AUDIT.md](docs/AUDIT.md) / [DEPLOY.md](docs/DEPLOY.md)).
+- **Generación real con LLM** (`AUD-004`) — el salto de mayor impacto visible; hoy la respuesta es extractiva. Requiere proveedor de pago (Gemini con billing, o Claude Haiku ~$0.0025/respuesta) tras el patrón live/fallback ya existente.
+- **Caché semántica real** (`AUD-005`) y **defensa anti prompt-injection** (`AUD-006`) — ligadas a activar el LLM generativo.
 
-> **Para retomar:** el estado, las decisiones y los hallazgos (incluido *por qué* el reranker inglés se descartó por el multilingüe, y los límites de la capa gratuita de Gemini) están en [AUDIT.md](docs/AUDIT.md); el procedimiento de deploy en [DEPLOY.md](docs/DEPLOY.md); los incidentes y sus fixes en [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+> **Para retomar:** estado, decisiones y hallazgos en [AUDIT.md](docs/AUDIT.md) (changelog + deuda `AUD-NNN`); casos de dominio medidos en [CASES.md](docs/CASES.md); postura de seguridad en [SECURITY.md](docs/SECURITY.md); deploy en [DEPLOY.md](docs/DEPLOY.md); incidentes en [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ## 📄 Licencia
 
