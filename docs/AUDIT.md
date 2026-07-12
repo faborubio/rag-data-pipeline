@@ -20,18 +20,18 @@ este documento queda como registro y base para futuras auditorías.
 
 ## 1. Inserción de chunks N+1 → `insert_all!` *(rendimiento)*
 
-**Antes:** [`Ingestor`](app/services/rag/ingestor.rb) hacía un `create!` por chunk
+**Antes:** [`Ingestor`](../app/services/rag/ingestor.rb) hacía un `create!` por chunk
 dentro de la transacción — un PDF de 118 chunks = 118 INSERTs + 118 ciclos de
 validación.
 **Ahora:** un único `DocumentChunk.insert_all!` (timestamps explícitos). El borrado
 previo se hace con `DocumentChunk.where(document_id:).delete_all` en vez de la
 asociación, para no dejar el target de la asociación cacheado como vacío (gotcha:
 `insert_all!` escribe por SQL y no actualizaría esa caché en memoria).
-**Verificación:** [`ingestor_test.rb`](test/services/rag/ingestor_test.rb).
+**Verificación:** [`ingestor_test.rb`](../test/services/rag/ingestor_test.rb).
 
 ## 2. Rate limiting para tráfico sin autenticar *(seguridad)*
 
-**Antes:** [`rack_attack.rb`](config/initializers/rack_attack.rb) solo throttleaba
+**Antes:** [`rack_attack.rb`](../config/initializers/rack_attack.rb) solo throttleaba
 keyeando por hash de la API key; las requests **sin** key retornaban `nil` → sin
 límite. Un atacante podía hacer fuerza bruta de keys sin tope (cada intento dispara
 una búsqueda por blind index).
@@ -39,11 +39,11 @@ una búsqueda por blind index).
 (`UNAUTH_RATE_LIMIT_PER_MINUTE`, default 20/min). Extracción de la key refactorizada
 a `RateLimit.api_key(req)` y reutilizada por ambos throttles.
 **Verificación:** test "throttles unauthenticated API traffic by IP" en
-[`rate_limit_test.rb`](test/integration/api/v1/rate_limit_test.rb).
+[`rate_limit_test.rb`](../test/integration/api/v1/rate_limit_test.rb).
 
 ## 3. Estado `failed` solo en el intento final *(correctitud)*
 
-**Antes:** [`DocumentIngestionJob`](app/jobs/document_ingestion_job.rb) marcaba el
+**Antes:** [`DocumentIngestionJob`](../app/jobs/document_ingestion_job.rb) marcaba el
 documento `failed` en **cada** reintento fallido y re-lanzaba, así que el status
 parpadeaba `failed → processing → failed` entre retries (un cliente podía leer un
 estado falso).
@@ -57,20 +57,20 @@ document failed only on the final attempt".
 
 **Antes:** README y comentarios llamaban "caché semántica" a una caché cuya clave es
 `SHA256(pregunta + document_ids)` — solo hay hit con pregunta **idéntica**.
-**Ahora:** wording corregido en [README](README.md) y
-[`query_service.rb`](app/services/rag/query_service.rb) a "exact-match", con nota de
+**Ahora:** wording corregido en [README](../README.md) y
+[`query_service.rb`](../app/services/rag/query_service.rb) a "exact-match", con nota de
 que una caché por similitud de embedding es trabajo futuro (roadmap).
 
 ## 5. Circuit breaker: half-open real *(resiliencia)*
 
-**Antes:** [`CircuitBreaker`](app/services/rag/circuit_breaker.rb) al expirar el
+**Antes:** [`CircuitBreaker`](../app/services/rag/circuit_breaker.rb) al expirar el
 `reset_timeout` reseteaba `failures = 0` y dejaba pasar **todo** el tráfico de golpe
 (*thundering herd* contra la dependencia que se intenta proteger).
 **Ahora:** máquina de estados `closed → open → half_open → closed/open`. En half-open
 se admite **una sola** request de prueba; las concurrentes se rechazan, y si la
 prueba falla el circuito vuelve a `open` de inmediato.
 **Verificación:** tests de re-apertura y de "admite un solo trial" (con dos hilos) en
-[`circuit_breaker_test.rb`](test/services/rag/circuit_breaker_test.rb).
+[`circuit_breaker_test.rb`](../test/services/rag/circuit_breaker_test.rb).
 
 ## 6. Acople de la ingestión al disco local *(arquitectura)*
 
@@ -84,13 +84,13 @@ worker. No requiere cambio de código hoy.
 
 ## 7. Validación de PDF por magic bytes *(robustez)*
 
-**Antes:** [`DocumentsController#pdf?`](app/controllers/api/v1/documents_controller.rb)
+**Antes:** [`DocumentsController#pdf?`](../app/controllers/api/v1/documents_controller.rb)
 validaba solo la extensión `.pdf`; un archivo no-PDF renombrado pasaba y fallaba más
 tarde en `pdftotext`.
 **Ahora:** además de la extensión, se leen los primeros bytes y se exige la cabecera
 `%PDF-` (con `rewind` para no consumir el IO antes de guardarlo).
 **Verificación:** test "rejects a non-pdf disguised with a .pdf extension" en
-[`documents_test.rb`](test/integration/api/v1/documents_test.rb).
+[`documents_test.rb`](../test/integration/api/v1/documents_test.rb).
 
 ## 8. `--ensure-latest` fuera de `bin/brakeman` *(CI/tooling)*
 
@@ -254,25 +254,51 @@ indexación masiva** (429); las consultas en vivo (cacheadas) van bien.
   Sanidad de regresión: `RERANK_MIN_SCORE=0.95` falla por false_abstention (tumba positivas) y
   `=0.01` falla por abstention (deja de abstener) — el gate efectivamente protege el umbral.
 
-## Pendiente / próximas auditorías (trabajo opcional, por valor)
+## Registro de deuda técnica (AUD-NNN)
 
-0. **Del audit, menor/cosmético:** ~~`WEB_CONCURRENCY=1` deja Puma en cluster-mode con 1 worker~~
-   (✅ resuelto: pasado a single-mode `WEB_CONCURRENCY=0` para no duplicar los modelos ONNX —
-   ver 3ª tanda abajo); `documents_version` sin scope de tenant (no hay fuga, solo prolijidad).
+Deuda **aceptada a propósito**, cada una con su plan de pago (formato de *El Método*, regla 2:
+*un trade-off sin `AUD` es deuda invisible*). Ordenadas por riesgo, no por antigüedad.
 
-0b. **Caché de streaming no escrita si el cliente corta justo al final** — `call_streaming`
-   escribe la entrada de caché **después** del último delta; si el `ClientDisconnected` ocurre
-   entre el último token y `Rails.cache.write`, esa respuesta (cara: embed+search+rerank+LLM) no
-   se cachea y la próxima vuelve a ser miss. Comportamiento **seguro** (nunca cachea parciales),
-   solo subóptimo. Arreglarlo bien implica caché incremental; diferido hasta tener LLM de pago
-   (donde un miss cuesta dinero). *(Caso borde #5 del review 2026-06-25.)*
+- **AUD-003 — La abstención se desactiva si el modelo del reranker no carga.** Con `RERANKER=neural`,
+  si el ONNX de jina falla al cargar/correr, `NeuralReranker` cae al léxico y `confident?` difiere al
+  contrato léxico (*never-gate*) → deja de abstener y puede responder off-topic mientras el modelo esté
+  caído. **Riesgo:** medio (solo si el modelo falla en prod; se loguea WARN). Se eligió *responder* sobre
+  *abstenerse-de-todo* a propósito. **Plan de pago:** alertar/monitorear la carga del modelo al boot;
+  evaluar un piso de confianza propio para el tier léxico. Ver [`neural_reranker.rb`](../app/services/rag/neural_reranker.rb).
 
-1. **Generación real con LLM** — el fallback ya es extractivo-enfocado; el salto a
-   respuestas generadas requiere proveedor de pago (Gemini con billing / Claude
-   Haiku) tras el patrón live/fallback existente.
-2. **Caché semántica real** — diferida a propósito: el embed (lo que ahorraría) es la
-   parte barata; el ahorro grande (rerank + LLM) recién vale con LLM de pago, y trae
-   riesgo de hit incorrecto. Revisar junto con la generación real.
+- **AUD-001 — Caché de streaming no escrita si el cliente corta justo al final.** `call_streaming` escribe
+  la entrada **después** del último delta; si el `ClientDisconnected` ocurre entre el último token y
+  `Rails.cache.write`, esa respuesta (cara: embed+search+rerank+LLM) no se cachea y la próxima vuelve a ser
+  miss. **Riesgo:** bajo — comportamiento **seguro** (nunca cachea parciales), solo subóptimo. **Plan de
+  pago:** caché incremental; diferido hasta tener LLM de pago (donde un miss cuesta dinero). *(Caso borde #5
+  del review 2026-06-25.)* Ver [`query_service.rb`](../app/services/rag/query_service.rb).
+
+- **AUD-006 — Sin defensa anti prompt-injection desde el contenido del PDF.** Hoy la respuesta es extractiva
+  (sin LLM generativo), así que un PDF con instrucciones maliciosas no puede secuestrar nada. **Riesgo:** nulo
+  hoy, **alto al activar AUD-004**. **Plan de pago:** delimitar/sanitizar el contexto y endurecer el system
+  prompt al integrar el LLM generativo. Ver [SECURITY](SECURITY.md).
+
+- **AUD-002 — `documents_version` sin scope de tenant.** El agregado `MAX(updated_at)` de la clave de caché
+  no filtra por tenant. **Riesgo:** nulo (no hay fuga — la clave ya incluye `tenant.id` y el retrieval está
+  scopeado); solo prolijidad. **Plan de pago:** añadir el scope al agregado. Ver [`query_service.rb`](../app/services/rag/query_service.rb).
+
+- **AUD-004 — Generación real con LLM.** El fallback ya es extractivo-enfocado; el salto a respuestas generadas
+  requiere proveedor de pago (Gemini con billing / Claude Haiku) tras el patrón live/fallback existente.
+  **Riesgo:** n/a (feature diferida). **Plan de pago:** activar con proveedor de pago cuando haya tracción.
+
+- **AUD-005 — Caché semántica real (hit por similitud de embedding).** Diferida a propósito: el embed (lo que
+  ahorraría) es la parte barata; el ahorro grande (rerank + LLM) recién vale con LLM de pago, y trae riesgo de
+  hit incorrecto. **Plan de pago:** revisar junto con AUD-004.
+
+- **AUD-007 — Sin SAD vivo dedicado.** El README (arquitectura + tabla de ADRs) y [SPEC](../SPEC.md) (el *por qué*
+  original) cubren hoy el rol del SAD; un `SAD-*.md` dedicado sería mayormente duplicación. **Plan de pago:** forjar
+  el SAD *solo con tracción* (si el proyecto crece a varios colaboradores o módulos). Decidido al adoptar el método
+  (2026-07-12).
+
+---
+
+## Exploraciones y decisiones históricas (ya implementadas)
+
 3. **Embedder neural local (ONNX) — explorando (decidido 2026-06-25).** Hoy los
    embeddings van por API (Gemini free tier → OpenAI → fallback BoW). El free tier de
    Gemini **satura con el bulk** (429 + tope diario), lo que vuelve inviable cargar un
@@ -372,7 +398,7 @@ cada uno con su test; suite **155 runs / 393 assertions verde**, RuboCop limpio.
 - **Abstención fail-fast en boot (riesgo: el RAG inventa).** La abstención solo gatea con
   `RERANKER=neural` (el reranker léxico nunca abstiene). Si prod arrancaba sin él, el RAG
   volvía a responder preguntas fuera de tema **sin que ningún test lo notara** (CI corre el
-  tier léxico). Ahora [`config/initializers/retrieval_guard.rb`](config/initializers/retrieval_guard.rb)
+  tier léxico). Ahora [`config/initializers/retrieval_guard.rb`](../config/initializers/retrieval_guard.rb)
   **aborta el arranque en producción** si el reranker activo no gatea (escape explícito:
   `ALLOW_NON_GATING_RERANKER=1` para un corpus cerrado donde toda pregunta es on-topic).
 
@@ -387,11 +413,11 @@ cada uno con su test; suite **155 runs / 393 assertions verde**, RuboCop limpio.
 - **Anti-DoS de ingesta (PDF-bomba).** El write path corre en **un** worker de Solid Queue;
   un tenant podía encolar decenas de PDFs grandes/bomba y matar de hambre a los demás. Cap de
   **ingestas en vuelo por tenant** (`MAX_INFLIGHT_INGESTIONS`, def 5 → 429) en
-  [`DocumentsController`](app/controllers/api/v1/documents_controller.rb).
+  [`DocumentsController`](../app/controllers/api/v1/documents_controller.rb).
 
 - **Anti-DoS de consulta.** Cap de cardinalidad de `document_ids` (`MAX_QUERY_DOCUMENT_IDS`,
   def 100) y de largo de la pregunta (`MAX_QUESTION_LENGTH`, def 2000) en
-  [`ChatsController`](app/controllers/api/v1/chats_controller.rb): un array gigante construía
+  [`ChatsController`](../app/controllers/api/v1/chats_controller.rb): un array gigante construía
   un `WHERE id IN (...)` patológico para martillar la DB.
 
 - **`/metrics` fail-closed en producción.** Antes quedaba **abierto** si `METRICS_TOKEN` estaba
@@ -417,7 +443,7 @@ cada uno con su test; suite **155 runs / 393 assertions verde**, RuboCop limpio.
 
 - **Re-ingesta concurrente del mismo doc.** Dos jobs sobre el mismo `document_id` podían
   interleavar `delete_all` + `insert_all!` y duplicar/perder chunks. Advisory lock de Postgres
-  (`pg_advisory_xact_lock`, transaction-scoped) por documento en el [`Ingestor`](app/services/rag/ingestor.rb).
+  (`pg_advisory_xact_lock`, transaction-scoped) por documento en el [`Ingestor`](../app/services/rag/ingestor.rb).
 
 - **TOCTOU de cuota.** Dos uploads concurrentes podían pasar ambos `room_for?` y exceder el
   budget. Re-chequeo de cuota + in-flight bajo `tenant.with_lock`.

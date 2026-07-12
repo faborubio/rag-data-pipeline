@@ -13,7 +13,7 @@ endpoint). Describe el alcance que se *pidió* al inicio. El proyecto se impleme
 por completo y **se extendió bastante más allá** de esta spec.
 
 > ⚠️ **Para el estado actual NO uses este archivo.** Lo hecho, las decisiones y los
-> hallazgos viven en **[AUDIT.md](AUDIT.md)** (bitácora/changelog) y
+> hallazgos viven en **[AUDIT.md](docs/AUDIT.md)** (bitácora/changelog) y
 > **[README.md](README.md)** (overview + roadmap); para orientación de sesión, ver
 > **[CLAUDE.md](CLAUDE.md)**.
 >

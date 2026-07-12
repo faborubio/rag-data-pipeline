@@ -25,6 +25,6 @@ Rails.application.config.after_initialize do
     Abstention is disabled: the active reranker (#{Rag.reranker.class}) never gates on
     relevance, so the Read Path will answer even off-topic questions instead of abstaining.
     Set RERANKER=neural to enable abstention, or ALLOW_NON_GATING_RERANKER=1 to accept this
-    on purpose. See AUDIT.md (gate de abstención).
+    on purpose. See docs/AUDIT.md (gate de abstención).
   MSG
 end

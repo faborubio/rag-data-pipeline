@@ -3,10 +3,14 @@
 > Este archivo se carga automáticamente al iniciar cada sesión.
 >
 > **AL INICIAR, lee de entrada los documentos fuente de verdad para tener todo el
-> contexto antes de actuar** (orden sugerido): [AUDIT.md](AUDIT.md) (changelog/estado
-> real), [README.md](README.md) (overview + roadmap), [DEPLOY.md](DEPLOY.md) (runbook
-> VPS), [TROUBLESHOOTING.md](TROUBLESHOOTING.md) (incidentes + fixes) y
-> [SPEC.md](SPEC.md) (spec original; para el *por qué*, no el estado actual).
+> contexto antes de actuar** (orden sugerido): [AUDIT.md](docs/AUDIT.md) (changelog/estado
+> real + registro de deuda `AUD-NNN`), [README.md](README.md) (overview + roadmap),
+> [CASES.md](docs/CASES.md) (casos de dominio medidos `CASE-NNN`),
+> [SECURITY.md](docs/SECURITY.md) (postura y modelo de amenazas),
+> [DEPLOY.md](docs/DEPLOY.md) (runbook VPS), [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+> (incidentes + fixes) y [SPEC.md](SPEC.md) (spec original; para el *por qué*, no el estado
+> actual). Los docs compañeros viven en [`docs/`](docs/); el proyecto sigue *El Método*
+> (documentación como sistema, proporcional a la escala).
 
 ## Qué es
 
@@ -36,12 +40,16 @@ rate limiting (rack-attack), evals con gate en CI (recall/MRR/keywords/grounding
 
 ## Documentos fuente de verdad (leer según necesidad)
 
-- **[AUDIT.md](AUDIT.md)** — bitácora: decisiones, hallazgos medidos, todo lo
-  hecho y lo pendiente (por valor). **El changelog real del proyecto.**
+- **[AUDIT.md](docs/AUDIT.md)** — bitácora: decisiones, hallazgos medidos, lo hecho y el
+  **registro de deuda `AUD-NNN`** (deuda aceptada + plan de pago). **El changelog real.**
 - **[README.md](README.md)** — overview, arquitectura, roadmap (qué está hecho).
-- **[DEPLOY.md](DEPLOY.md)** — runbook del VPS (Docker Compose + Caddy). Incluye
+- **[CASES.md](docs/CASES.md)** — casos raros del dominio (`CASE-NNN`) con evidencia medida:
+  colisión "mundial", sinónimos ES, umbral 0.18, PDF sin texto… **Leer antes de tocar una heurística/umbral.**
+- **[SECURITY.md](docs/SECURITY.md)** — postura y modelo de amenazas (auth, aislamiento,
+  rate-limit, subida, abstención como safety) y lo que queda fuera de alcance a propósito.
+- **[DEPLOY.md](docs/DEPLOY.md)** — runbook del VPS (Docker Compose + Caddy). Incluye
   el gotcha del inode al cambiar el `Caddyfile`.
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — incidentes recurrentes y sus fixes.
+- **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** — incidentes recurrentes y sus fixes.
 - **[SPEC.md](SPEC.md)** — especificación **original** (requisitos + SAD + diseño
   del endpoint). Útil para el *por qué*; NO para el estado actual (varios detalles
   evolucionaron — ver AUDIT/README).
@@ -50,7 +58,7 @@ rate limiting (rack-attack), evals con gate en CI (recall/MRR/keywords/grounding
 
 - Tests: `bin/rails test` · Evals: `bin/rails rag:evals`
 - Ingesta local reanudable de un PDF grande: `rake 'rag:ingest[/ruta.pdf,Tenant]'`
-- Deploy (desde local, ya commiteado): ver [DEPLOY.md](DEPLOY.md) — en resumen
+- Deploy (desde local, ya commiteado): ver [DEPLOY.md](docs/DEPLOY.md) — en resumen
   `git archive HEAD | ssh fabian@fabianragpipeline.duckdns.org tar -x` + `docker
   compose build web && up -d web` (SSH **por el dominio**, no por IP, porque la IP
   del VPS es efímera; recrear `caddy` con `--force-recreate` solo si cambió el `Caddyfile`).

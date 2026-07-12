@@ -3,7 +3,7 @@ module Rag
   # sentence-transformer (via informers), so there's no API, no key, no rate
   # limit and no per-call cost — the same local-model pattern the NeuralReranker
   # already uses. Chosen over the Gemini free tier, whose per-minute/daily caps
-  # made bulk-embedding a large corpus impractical (see AUDIT.md). Measured on
+  # made bulk-embedding a large corpus impractical (see docs/AUDIT.md). Measured on
   # the golden set: recall@5 / MRR = 1.0 (matches Gemini, beats the BoW fallback).
   #
   # Selected with EMBEDDER=local; the Embedder delegates a batch of texts here.

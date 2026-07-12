@@ -79,7 +79,7 @@ push que no toca nada relevante puede ponerse rojo de un día para otro.
   exige que **todos** los términos estén en el chunk → casi nunca matchea.
 - **Solución:** semántica **OR** rankeada por `ts_rank`. Se construye de forma
   segura reescribiendo la salida de `plainto_tsquery` (ver
-  [`DocumentChunk.full_text_search`](app/models/document_chunk.rb)):
+  [`DocumentChunk.full_text_search`](../app/models/document_chunk.rb)):
   ```sql
   replace(plainto_tsquery('spanish', immutable_unaccent(?))::text, '&', '|')::tsquery
   ```
@@ -129,7 +129,7 @@ DEPLOY.md.
 - **Causa:** una línea de texto que se sale del ancho de la `MediaBox` es
   **clipeada** por `pdftotext -layout`, sin error.
 - **Solución:** envolver el texto en líneas cortas al generar el PDF (ver
-  [`Rag::Evals::PdfBuilder`](app/services/rag/evals/pdf_builder.rb), método
+  [`Rag::Evals::PdfBuilder`](../app/services/rag/evals/pdf_builder.rb), método
   `text_stream`).
 - **Prevención:** al generar PDFs de prueba, no metas párrafos largos en un solo
   `Tj`; o valida que `pdftotext` devuelve el texto completo tras ingerir.
@@ -156,7 +156,7 @@ DEPLOY.md.
   iniciar la demo: HTTP 404"* y *"Demo no disponible"*; no hay campo para pegar la
   API key (está oculto).
 - **Causa:** la demo se autocredencia llamando a `GET /api/v1/demo`
-  ([`DemoController#show`](app/controllers/api/v1/demo_controller.rb)), que devuelve
+  ([`DemoController#show`](../app/controllers/api/v1/demo_controller.rb)), que devuelve
   la key del **tenant read-only** (`Tenant.where(read_only: true).order(:created_at).first`).
   En producción ese tenant existe; en una BD de desarrollo recién sembrada **ningún
   tenant es `read_only`**, así que el endpoint responde 404.

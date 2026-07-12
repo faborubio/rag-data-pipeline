@@ -224,7 +224,7 @@ bin/dev
 | `LOCKBOX_MASTER_KEY` / `BLIND_INDEX_MASTER_KEY` | Alternativa a las credenciales de Rails para entornos en contenedor. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Activa el envío de trazas OpenTelemetry vía OTLP al colector/backend indicado (Jaeger, Grafana Tempo, Honeycomb…). Sin ella no se exporta nada (en desarrollo se imprime en consola). |
 
-**Prioridad de proveedor de embeddings:** `EMBEDDER=local` (ONNX local) → `GEMINI_API_KEY` → `OPENAI_API_KEY` → fallback determinista (bag-of-words). Todos producen vectores de **384 dims** (la dimensión nativa del modelo local; Gemini vía `outputDimensionality`, OpenAI vía `dimensions`), así que comparten una única columna `vector(384)`. **Cambiar de proveedor implica re-embeber** (`rag:reembed`), ya que cada modelo vive en su propio espacio. El embedder local es el **default en producción** (mata el rate limit del free tier de Gemini que saturaba el bulk — ver [AUDIT.md](AUDIT.md)).
+**Prioridad de proveedor de embeddings:** `EMBEDDER=local` (ONNX local) → `GEMINI_API_KEY` → `OPENAI_API_KEY` → fallback determinista (bag-of-words). Todos producen vectores de **384 dims** (la dimensión nativa del modelo local; Gemini vía `outputDimensionality`, OpenAI vía `dimensions`), así que comparten una única columna `vector(384)`. **Cambiar de proveedor implica re-embeber** (`rag:reembed`), ya que cada modelo vive en su propio espacio. El embedder local es el **default en producción** (mata el rate limit del free tier de Gemini que saturaba el bulk — ver [AUDIT.md](docs/AUDIT.md)).
 
 ## 🧪 Crear un tenant y probar
 
@@ -301,7 +301,7 @@ Cada señal aporta sus 20 mejores candidatos y [`Rag::Rrf`](app/services/rag/rrf
 
 **Segunda etapa — reranking (retrieve-then-rerank).** Los candidatos fusionados (top-10) pasan por un reranker que los re-puntúa por par *(pregunta, pasaje)* antes de cortar a top-5, bajo el span `rag.rerank`. Hay dos detrás de la misma interfaz: un **reranker léxico** determinista (cobertura de términos + proximidad, por defecto) y un **cross-encoder neural** ONNX local ([`informers`](https://github.com/ankane/informers), opt-in con `RERANKER=neural`).
 
-**Lo que midieron los evals (decisión data-driven).** Con embeddings reales de **Gemini** el retrieval ya es casi perfecto. Probando rerankers neuronales: el **inglés** (`mxbai-rerank-base`) *demota* el caso español `rh-008` fuera del top-5 (recall 1.0 → 0.958 — empeora), pero el **multilingüe** (`jina-reranker-v2-base-multilingual`, cuantizado ~267MB) entiende maternidad↔"licencia parental" y deja todo en rank 1 → **1.0/1.0/1.0**. Lección: *un reranker solo ayuda si habla el idioma del corpus*. El cross-encoder neural (jina) queda **opt-in** (`RERANKER=neural`) por su coste (267MB + ~1-2s/consulta en 1 CPU); el **léxico es el default** rápido y ya logra recall 1.0 (ver [AUDIT.md](AUDIT.md)).
+**Lo que midieron los evals (decisión data-driven).** Con embeddings reales de **Gemini** el retrieval ya es casi perfecto. Probando rerankers neuronales: el **inglés** (`mxbai-rerank-base`) *demota* el caso español `rh-008` fuera del top-5 (recall 1.0 → 0.958 — empeora), pero el **multilingüe** (`jina-reranker-v2-base-multilingual`, cuantizado ~267MB) entiende maternidad↔"licencia parental" y deja todo en rank 1 → **1.0/1.0/1.0**. Lección: *un reranker solo ayuda si habla el idioma del corpus*. El cross-encoder neural (jina) queda **opt-in** (`RERANKER=neural`) por su coste (267MB + ~1-2s/consulta en 1 CPU); el **léxico es el default** rápido y ya logra recall 1.0 (ver [AUDIT.md](docs/AUDIT.md)).
 
 ## 📐 Evals de calidad RAG
 
@@ -328,7 +328,9 @@ El golden set incluye preguntas *difíciles* a propósito (vocabulario divergent
 
 ## 🚢 Despliegue
 
-Producción corre en una VPS (Google Cloud) con **Docker Compose** ([`compose.production.yml`](compose.production.yml)): Rails + pgvector + **Caddy** como reverse proxy con HTTPS automático (Let's Encrypt) y security headers, sirviendo la [demo en vivo](https://fabianragpipeline.duckdns.org/demo.html). El procedimiento paso a paso, la verificación post-deploy y los *gotchas* conocidos (p. ej. por qué un `caddy reload` no basta tras sincronizar el `Caddyfile`) están documentados en **[DEPLOY.md](DEPLOY.md)**. Los incidentes recurrentes y su solución (fallos de CI por versiones nuevas o CVEs, full-text vacío, etc.) viven en **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**, y la auditoría de mejoras de rendimiento/seguridad en **[AUDIT.md](AUDIT.md)**.
+Producción corre en una VPS (Google Cloud) con **Docker Compose** ([`compose.production.yml`](compose.production.yml)): Rails + pgvector + **Caddy** como reverse proxy con HTTPS automático (Let's Encrypt) y security headers, sirviendo la [demo en vivo](https://fabianragpipeline.duckdns.org/demo.html). El procedimiento paso a paso, la verificación post-deploy y los *gotchas* conocidos (p. ej. por qué un `caddy reload` no basta tras sincronizar el `Caddyfile`) están documentados en **[DEPLOY.md](docs/DEPLOY.md)**. Los incidentes recurrentes y su solución (fallos de CI por versiones nuevas o CVEs, full-text vacío, etc.) viven en **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**, y la auditoría de mejoras de rendimiento/seguridad en **[AUDIT.md](docs/AUDIT.md)**.
+
+La documentación compañera vive en [`docs/`](docs/) y sigue *El Método* (documentación como sistema, proporcional a la escala): **[AUDIT.md](docs/AUDIT.md)** (changelog + deuda `AUD-NNN`), **[CASES.md](docs/CASES.md)** (casos de dominio medidos `CASE-NNN`), **[SECURITY.md](docs/SECURITY.md)** (postura y modelo de amenazas), **[DEPLOY.md](docs/DEPLOY.md)** y **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**.
 
 También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/deploy.yml)) como alternativa, aunque el despliegue activo es el de Compose.
 
@@ -363,14 +365,14 @@ También existe configuración para **Kamal** (ver [`config/deploy.yml`](config/
 - [x] **Feedback 👍/👎** por respuesta (`POST /api/v1/feedback`), reflejado en la analítica
 - [x] **Idempotencia de embeddings** — reuso por `content_hash` + provider; re-ingestar contenido sin cambios no re-embebe (ahorra cuota Gemini)
 - [x] **Chunking estructural** — segmenta por párrafos (con reflow) y secciones (encabezados); no mezcla secciones y solo parte por caracteres lo que excede 500. Evals sin cambios en el corpus limpio; gana robustez con PDFs reales desordenados
-- [x] **Embedder neural local (ONNX)** — `EMBEDDER=local` usa `Xenova/multilingual-e5-small` (384d) vía `informers`/ONNX, reemplazando al free tier de Gemini (que saturaba el bulk con 429). Sin API, sin rate limit, gratis; medido recall/MRR **1.0** en el golden set (iguala a Gemini, supera al BoW), 64ms/embed. Implicó migrar el esquema a `vector(384)` — ver [AUDIT.md](AUDIT.md)
+- [x] **Embedder neural local (ONNX)** — `EMBEDDER=local` usa `Xenova/multilingual-e5-small` (384d) vía `informers`/ONNX, reemplazando al free tier de Gemini (que saturaba el bulk con 429). Sin API, sin rate limit, gratis; medido recall/MRR **1.0** en el golden set (iguala a Gemini, supera al BoW), 64ms/embed. Implicó migrar el esquema a `vector(384)` — ver [AUDIT.md](docs/AUDIT.md)
 
 ### Próximos pasos (opcionales, ordenados por valor)
 
 - [ ] **Generación real con LLM** — el salto de mayor impacto visible; hoy el fallback es extractivo. Requiere proveedor de pago (Gemini con billing, o Claude Haiku ~$0.0025/respuesta) tras el patrón live/fallback ya existente.
-- [x] **VPS escalado a `e2-standard-2`** (2 vCPU dedicados / 8 GB) + swap 2 GB — ingesta y consultas en paralelo, RAM holgada; cold-start ~6.2s→4.3s, query en caliente ~153ms (ver [AUDIT.md](AUDIT.md) / [DEPLOY.md](DEPLOY.md)).
+- [x] **VPS escalado a `e2-standard-2`** (2 vCPU dedicados / 8 GB) + swap 2 GB — ingesta y consultas en paralelo, RAM holgada; cold-start ~6.2s→4.3s, query en caliente ~153ms (ver [AUDIT.md](docs/AUDIT.md) / [DEPLOY.md](docs/DEPLOY.md)).
 
-> **Para retomar:** el estado, las decisiones y los hallazgos (incluido *por qué* el reranker inglés se descartó por el multilingüe, y los límites de la capa gratuita de Gemini) están en [AUDIT.md](AUDIT.md); el procedimiento de deploy en [DEPLOY.md](DEPLOY.md); los incidentes y sus fixes en [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+> **Para retomar:** el estado, las decisiones y los hallazgos (incluido *por qué* el reranker inglés se descartó por el multilingüe, y los límites de la capa gratuita de Gemini) están en [AUDIT.md](docs/AUDIT.md); el procedimiento de deploy en [DEPLOY.md](docs/DEPLOY.md); los incidentes y sus fixes en [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ## 📄 Licencia
 

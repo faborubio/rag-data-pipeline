@@ -35,7 +35,7 @@ services:
       # starve health checks / normal requests. The DB pool tracks this value.
       RAILS_MAX_THREADS: "6"
       # Local ONNX embedder (e5-small, baked into the image): no API, no rate
-      # limit. Takes priority over GEMINI_API_KEY. See AUDIT.md.
+      # limit. Takes priority over GEMINI_API_KEY. See docs/AUDIT.md.
       EMBEDDER: "local"
       # Kept for fallback/optional use; EMBEDDER=local wins over it.
       GEMINI_API_KEY: ${GEMINI_API_KEY}

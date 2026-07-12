@@ -1,6 +1,6 @@
 # 🚢 Runbook de despliegue (VPS)
 
-Producción corre en una VPS de Google Cloud con **Docker Compose** ([`compose.production.yml`](compose.production.yml)):
+Producción corre en una VPS de Google Cloud con **Docker Compose** ([`compose.production.yml`](../compose.production.yml)):
 tres contenedores — `web` (Rails + Solid Queue embebido), `db` (pgvector) y `caddy`
 (reverse proxy con HTTPS automático de Let's Encrypt para `fabianragpipeline.duckdns.org`).
 
@@ -133,6 +133,6 @@ Mientras el worker siga embebido en Puma, no hay nada que hacer.
 
 ## Kamal (alternativa, no activa)
 
-Existe [`config/deploy.yml`](config/deploy.yml) preparado para Kamal con
+Existe [`config/deploy.yml`](../config/deploy.yml) preparado para Kamal con
 `ankane/pgvector` como accesorio, pero **el despliegue activo es el de Compose**
 descrito arriba.

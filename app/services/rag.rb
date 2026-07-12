@@ -43,7 +43,7 @@ module Rag
   # retrieval order (recall@5 1.0), whereas the English neural cross-encoder
   # demotes the one hard Spanish semantic match out of the top-5. The neural
   # cross-encoder stays available opt-in (RERANKER=neural) pending a
-  # multilingual model. See AUDIT.md.
+  # multilingual model. See docs/AUDIT.md.
   def self.reranker
     ENV["RERANKER"] == "neural" ? NeuralReranker.new : Reranker.new
   end

@@ -16,7 +16,7 @@ module Rag
   #
   # This keeps each chunk semantically coherent, which matters for big, messy
   # real PDFs. The demo corpus is already clean, so the evals stay at 1.0 (see
-  # AUDIT.md) — the win is robustness on real-world input.
+  # docs/AUDIT.md) — the win is robustness on real-world input.
   class SemanticChunker
     CHUNK_SIZE = 500
     CHUNK_OVERLAP = 50
