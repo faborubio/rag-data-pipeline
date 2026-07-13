@@ -26,8 +26,14 @@
   Una key de usuario → `Current.user` (+ rol + tenant); una key de tenant → path anónimo/público.
 - **Autorización de escritura por ROL, no por key**: el gate de subida es `Current.user&.admin?` — admin y
   visitante comparten un tenant pero solo admin sube. Ver [`documents_controller.rb`](../app/controllers/api/v1/documents_controller.rb).
-- **Aislamiento de tenant**: verificado por test ("does not leak chunks from another tenant"); un id de otro
-  tenant devuelve fuentes vacías, nunca datos ajenos.
+- **Aislamiento de tenant**: verificado por una **suite adversarial dedicada**
+  ([`tenant_isolation_test.rb`](../test/integration/api/v1/tenant_isolation_test.rb)): un tenant atacante
+  autenticado sondea cada endpoint con ids de la víctima (cuyo corpus lleva un canario). Cubre: leer un
+  documento ajeno por id (404), mezclar ids propios y ajenos en una consulta (solo cita lo propio), inferir
+  el estado de indexación de un doc ajeno (no revela `processing`), cruzar la **caché de respuestas** con la
+  misma pregunta+ids (la clave incluye `tenant_id`), bloquear la subida de otro con un backlog de ingesta
+  propio, e inflar la cuota ajena. Más los checks por endpoint en sus propios tests (feedback, analytics,
+  listado de documentos).
 
 ## Superficie de entrada y defensas
 
@@ -59,6 +65,36 @@
 **Privacidad**
 - `QueryLog` con **retención** (`QUERY_LOG_RETENTION_DAYS`), truncado y **redacción opcional** del texto de la
   pregunta (`QUERY_LOG_STORE_QUESTION=0`). Ver [`query_log.rb`](../app/models/query_log.rb).
+
+## Postura a escala productiva (qué se activaría y cuándo)
+
+Ejercicio de proporcionalidad (Método §1) en la otra dirección: si esto fuera un SaaS con usuarios
+reales pagando, qué controles de la caja de herramientas clásica (ISO/OWASP/NIST…) se activarían y en
+qué orden. Es una **declaración de aplicabilidad** informal: lo que hoy no está, no está por juicio,
+no por omisión.
+
+**Tier 1 — día 1 de producción real (datos de clientes):**
+- **IAM completo**: registro + verificación de email, reset de contraseña, MFA para admins, rotación y
+  revocación de API keys, audit log de acciones admin. (Hoy: 2 cuentas seed, suficiente para la demo.)
+- **Tests adversariales de aislamiento**: ✅ **ya implementados** (ver arriba) — el riesgo #1 de un
+  multi-tenant es un bug de scoping, no un atacante externo, así que se adelantó a hoy.
+- **Backups + DRP probado**: dump automatizado de Postgres + un drill de restauración documentado.
+  (Hoy: el corpus demo es re-ingestable; no hay datos irrecuperables.)
+- **Gestión de vulnerabilidades continua**: `brakeman`/`bundler-audit` en CI + Dependabot + triage CVSS.
+- **Cifrado un paso más**: at-rest de los PDFs subidos, secrets en un manager (no `.env` plano),
+  retención/borrado por tenant al cerrar cuenta.
+
+**Tier 2 — con tracción (decenas de tenants activos):**
+- **Alerting** sobre lo que ya se emite (logs JSON + Prometheus): picos de logins fallidos, abuso por
+  tenant, error rate del write path. El "SIEM proporcional".
+- **Gestión de incidentes formal**: severidades, comunicación a clientes, postmortem con timeline.
+- **Pentest / assessment OWASP externo** (Top 10 web + **Top 10 LLM**) antes del primer cliente pagando.
+- **Hardening del cloud** (GCP): firewall VPC mínimo, service accounts de mínimo privilegio, parcheo del OS.
+
+**Tier 3 — solo si un contrato lo exige:**
+- ISO 27001 / COBIT / SOAR / ITIL / ISO 22301 completo. Su costo es enorme y su valor es contractual,
+  no técnico; certificarse "por si acaso" es deuda, no virtud. MITRE ATT&CK puede llegar antes como
+  *vocabulario* del modelo de amenazas, no como framework operativo.
 
 ## Fuera de alcance (aceptado a propósito)
 

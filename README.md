@@ -5,7 +5,7 @@
 **Backend RAG (Retrieval-Augmented Generation) multi-tenant** en Rails 8 + pgvector, sin vector store SaaS. Ingiere documentos (PDF/TXT/MD) y responde preguntas en lenguaje natural con **búsqueda híbrida**, **reranking neural**, **citas a la fuente** y **abstención** cuando el corpus no cubre la pregunta.
 
 [![CI](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/faborubio/rag-data-pipeline/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-157%20passing-22c55e)](test/)
+[![Tests](https://img.shields.io/badge/tests-163%20passing-22c55e)](test/)
 [![Ruby](https://img.shields.io/badge/Ruby-3.3.11-CC342D?logo=ruby&logoColor=white)](.ruby-version)
 [![Rails](https://img.shields.io/badge/Rails-8.1-CC0000?logo=rubyonrails&logoColor=white)](Gemfile)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](config/database.yml)
@@ -45,7 +45,7 @@ El objetivo es demostrar habilidades avanzadas de **ingeniería de datos, concur
 - 💬 **Respuestas en streaming (SSE)** token por token, citando documento y página.
 - 🚦 **Rate limiting por tenant** (rack-attack) y **caché distribuida** (Solid Cache sobre PostgreSQL).
 - 📈 **Observabilidad (3 pilares)**: logs JSON estructurados (lograge) + métricas **Prometheus** en `/metrics` + **tracing distribuido OpenTelemetry** (spans `rag.*`, exporter OTLP).
-- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 157 tests.
+- 🖥️ **Demo web** (sin build) para subir PDFs y chatear; ✅ **CI verde** con 163 tests.
 - 📐 **Evals de calidad RAG**: golden dataset + recall@5/MRR/keywords como **gate en CI** (con embeddings reales de Gemini: **recall 1.0**).
 
 ## 🏗️ Arquitectura

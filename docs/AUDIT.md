@@ -484,3 +484,25 @@ Se alineó la documentación con el manifiesto de ingeniería personal (`~/Works
 - **Enmienda al método (v1.2.0):** el README pasó a doc de primera clase (cara pública, "debe ser
   profesional") — gap detectado al adoptar el método aquí. Solo documentación: **sin redeploy** (el
   VPS sirve la app, no los `.md`).
+
+## Tests adversariales de aislamiento multi-tenant + postura a escala (2026-07-13)
+
+Disparado por un ejercicio de "¿qué controles de seguridad clásicos (ISO/SIEM/OWASP…) aplicarían si
+esto fuera un SaaS productivo?". Conclusión: casi todos son ceremonial a esta escala (el manifiesto §1
+lo dice literal), **excepto** los tests de aislamiento entre tenants — el multi-tenancy ya existe y un
+bug de scoping ya sería grave incluso en demo. Dos entregas:
+
+- **Suite adversarial** [`tenant_isolation_test.rb`](../test/integration/api/v1/tenant_isolation_test.rb)
+  (6 tests / 22 assertions): un tenant atacante autenticado sondea cada endpoint con ids de la víctima,
+  cuyo corpus lleva un **canario** que no debe aparecer en ninguna respuesta. Cubre lo que los tests por
+  endpoint no cubrían: `GET /documents/:id` ajeno (404), consulta con ids mezclados propios+ajenos (solo
+  cita lo propio), no-revelación del estado `processing` de un doc ajeno, **caché de respuestas** con la
+  misma pregunta+ids desde otro tenant (la clave incluye `tenant_id` — verificado con `MemoryStore` real,
+  la víctima cachea el canario y el atacante no lo rescata), backlog de ingesta ajeno no bloquea la subida
+  propia (cap por tenant), y la cuota no cuenta documentos ajenos. Verde a la primera: el aislamiento ya
+  era correcto; ahora está **defendido contra regresiones**.
+- **SECURITY.md ganó la sección "Postura a escala productiva"**: declaración de aplicabilidad informal en
+  3 tiers (día 1 con clientes / con tracción / solo por contrato) — deja explícito que lo que no está,
+  no está por juicio de proporcionalidad, no por omisión.
+
+Solo tests + docs: **sin redeploy**.
