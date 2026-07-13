@@ -62,8 +62,12 @@ rate limiting (rack-attack), evals con gate en CI (recall/MRR/keywords/grounding
   `git archive HEAD | ssh fabian@fabianragpipeline.duckdns.org tar -x` + `docker
   compose build web && up -d web` (SSH **por el dominio**, no por IP, porque la IP
   del VPS es efímera; recrear `caddy` con `--force-recreate` solo si cambió el `Caddyfile`).
-- Prod corre con `EMBEDDER=local` + `RERANKER=neural` (modelos bakeados en la imagen).
+- Prod corre con `EMBEDDER=local` + `RERANKER=neural` (modelos bakeados en la imagen),
+  **Puma single-mode** (`WEB_CONCURRENCY=0`, no duplica los modelos ONNX) y `/metrics`
+  **fail-closed** (`METRICS_TOKEN` seteado en el `.env` del VPS).
 - Demo en vivo: https://fabianragpipeline.duckdns.org (raíz redirige a `/demo.html`).
+- **Al iniciar prod hay un guard** ([`retrieval_guard.rb`](config/initializers/retrieval_guard.rb)):
+  aborta el boot si el reranker activo no gatea la abstención (escape `ALLOW_NON_GATING_RERANKER=1`).
 
 ## Convenciones / contexto de trabajo
 
@@ -79,3 +83,9 @@ rate limiting (rack-attack), evals con gate en CI (recall/MRR/keywords/grounding
   (embedder + reranker ONNX cargados); modelos bakeados en la imagen Docker.
 - Al cambiar el **formato de respuesta**, subir `QueryService::CACHE_VERSION`
   (si no, la caché versionada-por-contenido enmascara el cambio).
+- **Documentación como sistema (*El Método*, ~/Workspace/metodo):** proporcional a la
+  escala. Docs compañeros en [`docs/`](docs/); el `README` es la **cara pública**
+  (profesional, para quien evalúa) y `CLAUDE.md` la **cara interna** (reentrar rápido).
+  Deuda aceptada → `AUD-NNN` en [AUDIT](docs/AUDIT.md); casos de dominio → `CASE-NNN` en
+  [CASES](docs/CASES.md) **antes** de tocar una heurística/umbral. Al cerrar trabajo que
+  cambió el estado: sincronizar AUDIT/CASES/TROUBLESHOOTING/CLAUDE + verde + commit.

@@ -458,3 +458,29 @@ cada uno con su test; suite **155 runs / 393 assertions verde**, RuboCop limpio.
 - **Puma single-mode (`WEB_CONCURRENCY=0`).** `=1` forzaba cluster con 1 worker (overhead puro)
   y habría cargado los ~767MB de modelos ONNX (e5 + jina) **por worker**. Single-mode mantiene
   un proceso con N threads; la inferencia ONNX libera el GVL, así que usan los 2 cores dedicados.
+
+**Deploy + verificación (2026-06-26).** La 3ª tanda se desplegó al VPS (`build web` + `up -d web`).
+Confirmado en prod: logs muestran *"Puma starting in single mode"*, boot sin error del guard de
+abstención (`RERANKER=neural` gatea), post-deploy `up:200 / demo:200 / metrics:403(edge) / auth:401`
++ HSTS, y RAG end-to-end (responde in-corpus con citas, abstiene off-topic). Se configuró
+`METRICS_TOKEN` en el `.env` del VPS → `/metrics` interno 200 con token / 401 sin él. *(Observación:
+el corpus demo `manual-seguridad-rag.pdf` es en realidad un manual de evacuación de 2 chunks — ver
+[CASE-007](CASES.md); preguntas de evacuación responden, las meta/off-topic abstienen.)*
+
+## Adopción de *El Método* + README profesional (2026-07-12)
+
+Se alineó la documentación con el manifiesto de ingeniería personal (`~/Workspace/metodo`, ahora
+**v1.2.0**): **documentación como sistema**, proporcional a la escala.
+
+- Docs compañeros movidos a [`docs/`](.) (`git mv`, historia preservada); `README`/`CLAUDE.md`/`SPEC.md`
+  quedan en raíz. Links cruzados arreglados (docs→código con `../`, raíz→`docs/`), 0 rotos.
+- Nuevos [CASES.md](CASES.md) (casos de dominio medidos `CASE-NNN`) y [SECURITY.md](SECURITY.md)
+  (modelo de amenazas proporcional).
+- Deuda reformateada a **registro `AUD-NNN`** (deuda + riesgo + plan de pago).
+- **README profesionalizado** (estándar "cara pública" del método v1.2.0): diagramas corregidos a
+  Mermaid (eran inexactos — write path decía OpenAI, read path omitía híbrida/rerank/abstención),
+  "por qué destaca" con 3 diferenciadores **medidos** al frente, Roadmap comprimido (era changelog)
+  con refs `AUD-NNN`, badge de tests 134→157, tagline honesto.
+- **Enmienda al método (v1.2.0):** el README pasó a doc de primera clase (cara pública, "debe ser
+  profesional") — gap detectado al adoptar el método aquí. Solo documentación: **sin redeploy** (el
+  VPS sirve la app, no los `.md`).

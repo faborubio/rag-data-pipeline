@@ -118,6 +118,20 @@ DEPLOY.md.
   server, así que el redeploy estándar (build + `up -d web`) aplica las migraciones
   solo. Verifica con los pasos de DEPLOY.md tras el deploy.
 
+### `ssh … tar -x` falla con "Host key verification failed" en el deploy
+
+- **Síntoma:** el `git archive HEAD | ssh fabian@fabianragpipeline.duckdns.org …` del runbook
+  aborta con `Host key verification failed` (exit 255), aunque antes funcionaba.
+- **Causa:** la IP externa del VPS es **efímera** y cambia al parar/arrancar la VM (p. ej. un
+  resize). Las entradas viejas en `~/.ssh/known_hosts` son por **IP**, y el dominio nuevo no
+  está confiado todavía → un SSH no-interactivo (sin poder responder "yes") falla.
+- **Solución:** confiar la clave **por el dominio** con TOFU:
+  `ssh -o StrictHostKeyChecking=accept-new fabian@fabianragpipeline.duckdns.org …`. `accept-new`
+  añade la clave si no existe pero **rechaza si cambiara** después (protege de MITM) — equivale a
+  escribir "yes" a mano. Queda guardada por dominio, así sobrevive a cambios de IP.
+- **Prevención:** reservar la IP como **estática** en GCP (VPC → IP addresses → *Promote to static*,
+  gratis mientras esté adjunta) elimina el cambio de IP de raíz. Ver [DEPLOY.md](DEPLOY.md).
+
 ---
 
 ## Entorno de desarrollo
