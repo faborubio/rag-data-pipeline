@@ -58,6 +58,9 @@ rate limiting (rack-attack), evals con gate en CI (recall/MRR/keywords/grounding
 
 - Tests: `bin/rails test` · Evals: `bin/rails rag:evals`
 - Ingesta local reanudable de un PDF grande: `rake 'rag:ingest[/ruta.pdf,Tenant]'`
+- Todas las tasks del pipeline viven en [`lib/tasks/rag.rake`](lib/tasks/rag.rake): `rag:evals`,
+  `rag:ingest`, `rag:reembed` (re-embebe tras cambiar de proveedor; sella `updated_at` para
+  invalidar la caché de respuestas) y `rag:purge_query_logs` (retención de `QueryLog`).
 - Deploy (desde local, ya commiteado): ver [DEPLOY.md](docs/DEPLOY.md) — en resumen
   `git archive HEAD | ssh fabian@fabianragpipeline.duckdns.org tar -x` + `docker
   compose build web && up -d web` (SSH **por el dominio**, no por IP, porque la IP
