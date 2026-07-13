@@ -18,6 +18,15 @@ IP y el dominio (y por tanto estos comandos) siguen funcionando. Para evitarlo d
 mientras esté adjunta). Escalar el tipo de máquina: parar la VM → *Edit* → *Machine type* →
 arrancar (~3–5 min de downtime; Docker levanta solo por `restart: unless-stopped`).
 
+## 📌 Pendiente para el próximo deploy
+
+*(Borrar esta sección al ejecutarlo.)* El próximo `build web && up -d web` recoge, sin pasos
+extra, lo acumulado el **2026-07-13**: los parches de CVEs en gems (nokogiri, websocket-driver
+y 5 más — el fix del CI), los 7 bumps de Dependabot (incl. `neighbor` 1.2.0) y la imagen más
+liviana sin `image_processing`/`libvips`. Solo dependencias: no cambia código ni config. Sin
+urgencia (los CVEs eran DoS de parsers que esta API-only casi no ejercita y el edge filtra),
+pero conviene no dejarlo criar polvo.
+
 ## Procedimiento estándar
 
 Desde la copia local, con los cambios ya commiteados y pusheados:
